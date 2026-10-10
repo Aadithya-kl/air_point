@@ -48,12 +48,16 @@ Everything runs in a tight async loop. Frame capture never blocks inference. Cur
 ## Quick Start
 
 ```powershell
-git clone https://github.com/Rcidshacker/airmouse.git
-cd airmouse
+git clone https://github.com/Aadithya-kl/air_point.git
+cd air_point
 
 # Create virtual environment
 python -m venv .venv
 .\.venv\Scripts\pip install -r requirements.txt
+
+# Download the required MediaPipe model (hand_landmarker.task)
+mkdir models
+Invoke-WebRequest -Uri "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task" -OutFile "models\hand_landmarker.task"
 
 # Launch
 .\.venv\Scripts\python main.py
