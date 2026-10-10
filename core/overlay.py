@@ -1,138 +1,246 @@
-# core/overlay.py
 import tkinter as tk
 import ctypes
 import time
+import math
 import os
-from core.gestures.screenshot import ScreenshotState
 import logging
+from core.gestures.screenshot import ScreenshotState
+from config import SCREENSHOT_HOLD_DURATION_S, SCREENSHOT_OVERLAY_POSITION
 
 logger = logging.getLogger(__name__)
+
+def get_capsule_path(w, h, p):
+    r = h / 2.0
+    top_len = w - 2*r
+    arc_len = math.pi * r
+    total_len = 2*top_len + 2*arc_len
+    target = p * total_len
+    
+    segments = []
+    current = 0.0
+    
+    l = top_len / 2.0
+    if target > current:
+        draw_len = min(l, target - current)
+        segments.append(('line', w/2, 0, w/2 + draw_len, 0))
+        current += l
+        
+    if target > current:
+        draw_len = min(arc_len, target - current)
+        extent = -(draw_len / arc_len) * 180
+        segments.append(('arc', w-2*r, 0, w, h, 90, extent))
+        current += arc_len
+        
+    if target > current:
+        draw_len = min(top_len, target - current)
+        segments.append(('line', w-r, h, w-r - draw_len, h))
+        current += top_len
+        
+    if target > current:
+        draw_len = min(arc_len, target - current)
+        extent = -(draw_len / arc_len) * 180
+        segments.append(('arc', 0, 0, 2*r, h, 270, extent))
+        current += arc_len
+        
+    if target > current:
+        draw_len = min(l, target - current)
+        segments.append(('line', r, 0, r + draw_len, 0))
+        
+    return segments
 
 class ScreenshotOverlay:
     def __init__(self, position="TOP_RIGHT"):
         self.root = tk.Tk()
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
-        self.root.attributes("-alpha", 0.85)
-        self.root.configure(bg="#151515")
+        self.root.attributes("-alpha", 0.95)
+        self.root.wm_attributes('-transparentcolor', '#000001')
+        self.root.configure(bg='#000001')
         
-        self.lbl_title = tk.Label(self.root, text="AIR POINT · SCREENSHOT", bg="#151515", fg="#00e5ff", font=("Consolas", 10, "bold"))
-        self.lbl_title.pack(anchor="w", padx=12, pady=(12, 6))
-        
-        self.lbl_status = tk.Label(self.root, text="STATUS: READY", bg="#151515", fg="#ffffff", font=("Consolas", 10))
-        self.lbl_status.pack(anchor="w", padx=12)
-        
-        self.lbl_hands = tk.Label(self.root, text="LEFT HAND: 0/5 · RIGHT HAND: 0/5", bg="#151515", fg="#aaaaaa", font=("Consolas", 9))
-        self.lbl_hands.pack(anchor="w", padx=12, pady=(2, 6))
-        
-        self.lbl_last = tk.Label(self.root, text="LAST CAPTURE: —", bg="#151515", fg="#ffffff", font=("Consolas", 10))
-        self.lbl_last.pack(anchor="w", padx=12, pady=(0, 12))
-        
-        self.root.update_idletasks()
-        
-        # Make click-through on Windows (MUST use GetParent for TopLevel window on Windows, not the client frame)
         try:
             hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
             style = ctypes.windll.user32.GetWindowLongW(hwnd, -20)
             ctypes.windll.user32.SetWindowLongW(hwnd, -20, style | 0x00080000 | 0x00000020)
         except Exception as e:
             logger.warning("Could not make overlay click-through: %s", e)
-        
-        # Dimensions
-        w = 300
-        h = 105
-        sw = self.root.winfo_screenwidth()
-        sh = self.root.winfo_screenheight()
-        pad = 20
-        
-        
-        if position == "TOP_RIGHT":
-            x, y = sw - w - pad, pad
-        elif position == "TOP_LEFT":
-            x, y = pad, pad
-        elif position == "BOTTOM_RIGHT":
-            x, y = sw - w - pad, sh - h - pad
-        else:
-            x, y = pad, sh - h - pad
             
-        self.root.geometry(f"{w}x{h}+{x}+{y}")
-        self.root.deiconify()
-        self.root.lift()
-        self._last_capture = "—"
-        self._toast_until = 0
-        self._is_hidden = False
+        self.w = 220
+        self.h = 44
+        self.sw = self.root.winfo_screenwidth()
+        self.sh = self.root.winfo_screenheight()
         
+        self.pad_top = 16
+        self.x = (self.sw - self.w) // 2
+        self.y_hidden = -self.h - 10
+        self.y_visible = self.pad_top
+        
+        self.current_y = self.y_hidden
+        self.root.geometry(f"{self.w}x{self.h}+{self.x}+{int(self.current_y)}")
+        
+        self.canvas = tk.Canvas(self.root, width=self.w, height=self.h, bg='#000001', highlightthickness=0)
+        self.canvas.pack()
+        
+        self._is_hidden = True
+        self.root.withdraw()
+        
+        self._last_ui_update = 0
+        self._toast_until = 0
+        self._island_state = "IDLE" # IDLE, DROPPING, HOLDING, SUCCESS, ERROR, RETRACTING
+        self._island_text = "Hold still"
+        self._island_color = "#00e5ff"
+        self._progress = 0.0
+        
+        self._force_hide = False
+
     def hide(self):
-        if not self._is_hidden:
+        if not self._force_hide:
             self.root.withdraw()
             self.root.update()
-            self._is_hidden = True
-            time.sleep(0.02) # Give Windows DWM time to actually hide it from screen before capture
-        
-    def show(self):
-        if self._is_hidden:
-            self.root.deiconify()
-            self.root.update()
-            self._is_hidden = False
+            self._force_hide = True
+            time.sleep(0.02)
             
+    def show(self):
+        if self._force_hide:
+            if self._island_state != "IDLE":
+                self.root.deiconify()
+                self.root.lift()
+            self.root.update()
+            self._force_hide = False
+            
+    def _draw_island(self):
+        self.canvas.delete("all")
+        # Base pill
+        r = self.h / 2
+        points = [
+            r, 0, self.w-r, 0,
+            self.w-r, 0, self.w, 0, self.w, r,
+            self.w, r, self.w, self.h-r,
+            self.w, self.h-r, self.w, self.h, self.w-r, self.h,
+            self.w-r, self.h, r, self.h,
+            r, self.h, 0, self.h, 0, self.h-r,
+            0, self.h-r, 0, r,
+            0, r, 0, 0, r, 0
+        ]
+        self.canvas.create_polygon(points, smooth=True, fill="#121212", outline="#222222", width=1)
+        
+        # Text
+        if self._island_state == "SUCCESS":
+            # Draw a small checkmark on the left
+            cx, cy = 30, self.h/2
+            self.canvas.create_line(cx-6, cy, cx-2, cy+5, cx+6, cy-5, fill="#00ff66", width=2, capstyle=tk.ROUND, joinstyle=tk.ROUND)
+            self.canvas.create_text(self.w/2 + 10, self.h/2, text=self._island_text, fill="white", font=("Segoe UI", 11, "bold"))
+        elif self._island_state == "ERROR":
+            cx, cy = 30, self.h/2
+            self.canvas.create_line(cx-5, cy-5, cx+5, cy+5, fill="#ff4444", width=2, capstyle=tk.ROUND)
+            self.canvas.create_line(cx-5, cy+5, cx+5, cy-5, fill="#ff4444", width=2, capstyle=tk.ROUND)
+            self.canvas.create_text(self.w/2 + 10, self.h/2, text=self._island_text, fill="white", font=("Segoe UI", 11, "bold"))
+        else:
+            self.canvas.create_text(self.w/2, self.h/2, text=self._island_text, fill="white", font=("Segoe UI", 11, "bold"))
+            
+        # Progress border
+        if self._progress > 0:
+            segments = get_capsule_path(self.w, self.h, self._progress)
+            for seg in segments:
+                if seg[0] == 'line':
+                    self.canvas.create_line(seg[1], seg[2], seg[3], seg[4], fill=self._island_color, width=2, capstyle=tk.ROUND)
+                elif seg[0] == 'arc':
+                    self.canvas.create_arc(seg[1], seg[2], seg[3], seg[4], start=seg[5], extent=seg[6], style=tk.ARC, outline=self._island_color, width=2)
+                    
+    def _animate_y(self, target_y, speed=0.3):
+        dy = target_y - self.current_y
+        self.current_y += dy * speed
+        if abs(self.current_y - target_y) < 1.0:
+            self.current_y = target_y
+        self.root.geometry(f"{self.w}x{self.h}+{self.x}+{int(self.current_y)}")
+        
     def update_state(self, ss_controller, is_paused):
         now = time.time()
-        if not hasattr(self, '_last_ui_update'):
-            self._last_ui_update = 0
-            
-        if now - self._last_ui_update < 0.033: # Max 30fps update rate
+        if now - self._last_ui_update < 0.033:
             return
-            
+        dt = now - self._last_ui_update
         self._last_ui_update = now
         
-        if is_paused:
-            self.lbl_status.config(text="STATUS: SYSTEM PAUSED", fg="#aaaaaa")
-        elif now < self._toast_until:
-            pass # Keep toast active
-        elif ss_controller and ss_controller._state == ScreenshotState.READY:
-            self.lbl_status.config(text="STATUS: READY", fg="#00e5ff")
-        elif ss_controller and ss_controller._state == ScreenshotState.HOLDING:
-            from config import SCREENSHOT_HOLD_DURATION_S
-            elapsed = now - getattr(ss_controller, '_hold_start_time', now)
-            rem = max(0.0, SCREENSHOT_HOLD_DURATION_S - elapsed)
-            self.lbl_status.config(text=f"STATUS: HOLD BOTH PALMS ({rem:.1f}s)", fg="#ffff00")
-        elif ss_controller and ss_controller._state == ScreenshotState.CAPTURED:
-            if "CAPTURED" in ss_controller.hud_text and now > self._toast_until:
-                import re
-                m = re.search(r'\((.*?)\)', ss_controller.hud_text)
-                if m:
-                    self.show_success_toast(m.group(1))
-        elif ss_controller and ss_controller._state == ScreenshotState.ERROR:
+        # State transitions
+        if self._island_state in ("SUCCESS", "ERROR"):
             if now > self._toast_until:
-                self.show_error_toast()
-        elif ss_controller and getattr(ss_controller, '_display_until', 0) > now:
-            if "CANCELLED" in ss_controller.hud_text:
-                self.lbl_status.config(text="STATUS: CANCELLED", fg="#ff4444")
-            elif "REARM" in ss_controller.hud_text:
-                self.lbl_status.config(text="STATUS: RELEASE TO REARM", fg="#ffaa00")
-
-        left = getattr(ss_controller, 'left_fingers_ext', 0) if ss_controller else 0
-        right = getattr(ss_controller, 'right_fingers_ext', 0) if ss_controller else 0
-        
-        self.lbl_hands.config(text=f"LEFT HAND: {left}/5 · RIGHT HAND: {right}/5")
-        self.lbl_last.config(text=f"LAST CAPTURE: {self._last_capture}")
-        
-        if not self._is_hidden:
+                self._island_state = "RETRACTING"
+        elif ss_controller:
+            if ss_controller._state == ScreenshotState.HOLDING:
+                if self._island_state in ("IDLE", "RETRACTING"):
+                    self._island_state = "DROPPING"
+                    self._island_text = "Hold still"
+                    self._island_color = "#00ff66"
+                    self.root.deiconify()
+                    self.root.lift()
+                    self._is_hidden = False
+                elif self._island_state == "DROPPING" and self.current_y == self.y_visible:
+                    self._island_state = "HOLDING"
+                    
+                elapsed = now - getattr(ss_controller, '_hold_start_time', now)
+                self._progress = min(1.0, max(0.0, elapsed / SCREENSHOT_HOLD_DURATION_S))
+            
+            elif getattr(ss_controller, '_display_until', 0) > now:
+                if "CANCELLED" in ss_controller.hud_text and self._island_state in ("DROPPING", "HOLDING"):
+                    self._island_state = "RETRACTING"
+            else:
+                if self._island_state in ("DROPPING", "HOLDING"):
+                    self._island_state = "RETRACTING"
+                    
+            if ss_controller._state == ScreenshotState.CAPTURED:
+                if "CAPTURED" in ss_controller.hud_text and self._island_state != "SUCCESS":
+                    import re
+                    m = re.search(r'\((.*?)\)', ss_controller.hud_text)
+                    if m:
+                        self.show_success_toast(m.group(1))
+            elif ss_controller._state == ScreenshotState.ERROR:
+                if self._island_state != "ERROR":
+                    self.show_error_toast()
+                    
+        if is_paused:
+            self._island_state = "RETRACTING"
+            
+        # Animation
+        if self._island_state == "DROPPING":
+            self._animate_y(self.y_visible)
+        elif self._island_state == "RETRACTING":
+            self._animate_y(self.y_hidden)
+            if self.current_y == self.y_hidden and not self._is_hidden:
+                self.root.withdraw()
+                self.root.update()
+                self._is_hidden = True
+                self._island_state = "IDLE"
+        elif self._island_state == "SUCCESS":
+            self._progress = 1.0
+            self._animate_y(self.y_visible)
+        elif self._island_state == "ERROR":
+            self._progress = 1.0
+            self._animate_y(self.y_visible)
+        elif self._island_state == "IDLE":
+            self._progress = 0.0
+            
+        if not self._is_hidden and not self._force_hide:
+            self._draw_island()
             self.root.update()
-        
+
     def show_success_toast(self, filename):
         now = time.time()
-        self._toast_until = now + 4.0
-        base = os.path.basename(filename)
-        self.lbl_status.config(text=f"SAVED: {base}", fg="#00ff00")
-        self._last_capture = time.strftime("%H:%M:%S")
-        self.update_state(None, False) # force redraw
+        self._toast_until = now + 1.5
+        self._island_state = "SUCCESS"
+        self._island_text = "Screenshot saved"
+        self._island_color = "#00ff66"
+        self.root.deiconify()
+        self.root.lift()
+        self._is_hidden = False
         
     def show_error_toast(self):
         now = time.time()
-        self._toast_until = now + 4.0
-        self.lbl_status.config(text="ERROR: CAPTURE FAILED", fg="#ff0000")
-        self.update_state(None, False)
+        self._toast_until = now + 1.5
+        self._island_state = "ERROR"
+        self._island_text = "Screenshot failed"
+        self._island_color = "#ff4444"
+        self.root.deiconify()
+        self.root.lift()
+        self._is_hidden = False
 
     def close(self):
         self.root.destroy()

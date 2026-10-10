@@ -56,7 +56,7 @@ ZOOM_TICK_DELTA         = 0.03    # normalized distance change per zoom tick
 # Screenshot thresholds (Phase 4.1: Two-Hand Open-Palm Hold)
 SCREENSHOT_ENABLED         = True
 SCREENSHOT_OVERLAY_ENABLED = True
-SCREENSHOT_OVERLAY_POSITION= "TOP_RIGHT"
+SCREENSHOT_OVERLAY_POSITION= "TOP_CENTER"
 SCREENSHOT_DIR             = "screenshots"
 SCREENSHOT_HOLD_DURATION_S = 3.0
 SCREENSHOT_GRACE_PERIOD_S  = 0.10
