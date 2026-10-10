@@ -39,6 +39,12 @@ from core.tracker import HandTracker, HandsResult
 from core.gestures import GestureOrchestrator
 from core.actuator import MouseActuator
 from core.display import build_virtual_desktop, build_trackpad_zone
+from config import SCREENSHOT_OVERLAY_ENABLED, SCREENSHOT_OVERLAY_POSITION
+
+if SCREENSHOT_OVERLAY_ENABLED:
+    from core.overlay import ScreenshotOverlay
+else:
+    ScreenshotOverlay = None
 
 if DEBUG_GESTURES:
     from core.debug_overlay import draw_debug_frame
@@ -196,8 +202,17 @@ def run() -> None:
         last_frame_time = time.perf_counter()
 
         last_processed_frame = None
+        
+        overlay = None
+        if ScreenshotOverlay:
+            overlay = ScreenshotOverlay(SCREENSHOT_OVERLAY_POSITION)
+            processor._screenshot.pre_capture_cb = overlay.hide
+            processor._screenshot.post_capture_cb = overlay.show
+            
         try:
             while is_running:
+                if overlay:
+                    overlay.update_state(processor._screenshot, is_paused)
                 frame = camera.read()
                 if frame is not None:
                     # Skip if we already processed this exact frame object
@@ -253,7 +268,8 @@ def run() -> None:
                         camera.fps,
                         processor.click_state_text,
                         processor.last_pinch_norm,
-                        processor.is_cursor_locked
+                        processor.is_cursor_locked,
+                        processor
                     )
                     cv2.imshow("VIRTUAL POINTER", annotated)
                     if cv2.waitKey(1) & 0xFF == ord('q'):

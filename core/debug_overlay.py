@@ -63,6 +63,7 @@ def draw_debug_frame(
     click_state_text: str = "DISABLED",
     last_pinch_norm: float = 0.0,
     is_cursor_locked: bool = False,
+    orchestrator = None
 ) -> np.ndarray:
     """
     Returns a copy of frame with futuristic UI overlay.
@@ -169,17 +170,25 @@ def draw_debug_frame(
     if not POINTER_ONLY_MODE:
         hud_lines.append(f"SENSOR_L  : {l_status}")
 
+    if orchestrator and getattr(orchestrator, '_screenshot', None):
+        ss = orchestrator._screenshot
+        if ss.hud_left: hud_lines.append(ss.hud_left)
+        if ss.hud_right: hud_lines.append(ss.hud_right)
+        if ss.hud_text: hud_lines.append(ss.hud_text)
+
     for idx, line in enumerate(hud_lines):
         y = 70 + idx * 22
         color = _WHITE if "TRACKING" in line or "CURSOR" in line else _GRAY
         if "LOST" in line or "OFFLINE" in line:
             color = _ALERT
-        if "STATE" in line or "CLICK" in line or "ZOOM" in line:
+        if "STATE" in line or "CLICK" in line or "ZOOM" in line or "SCREENSHOT" in line:
             color = _CYAN
-        if "LEFT CLICK" in line or "SINGLE CLICK" in line or "DOUBLE CLICK" in line or "PENDING" in line or "ZOOM:" in line:
+        if "LEFT CLICK" in line or "SINGLE CLICK" in line or "DOUBLE CLICK" in line or "PENDING" in line or "ZOOM:" in line or "SCREENSHOT:" in line:
             color = _WHITE
         if "FPS" in line or "TIME" in line:
             color = _BLUE
+        if "ERROR" in line:
+            color = _ALERT
         cv2.putText(out, line, (25, y), _FONT, 0.5, color, 1, cv2.LINE_AA)
 
     # Help text at bottom

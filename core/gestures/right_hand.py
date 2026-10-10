@@ -4,24 +4,24 @@ Right-hand gesture processor.
 
 State machine:
   IDLE
-    ├─ fist                      → LOCKED
-    ├─ peace sign                → SCROLLING
-    └─ thumb+index pinch         → LEFT_PINCH_PENDING_DRAG
+    â”œâ”€ fist                      â†’ LOCKED
+    â”œâ”€ peace sign                â†’ SCROLLING
+    â””â”€ thumb+index pinch         â†’ LEFT_PINCH_PENDING_DRAG
 
   LOCKED
-    └─ any finger extends        → IDLE
+    â””â”€ any finger extends        â†’ IDLE
 
   SCROLLING
-    ├─ wrist flick up            → scroll(+ticks)  [stay SCROLLING]
-    ├─ wrist flick down          → scroll(-ticks)  [stay SCROLLING]
-    └─ peace sign released       → IDLE
+    â”œâ”€ wrist flick up            â†’ scroll(+ticks)  [stay SCROLLING]
+    â”œâ”€ wrist flick down          â†’ scroll(-ticks)  [stay SCROLLING]
+    â””â”€ peace sign released       â†’ IDLE
 
   LEFT_PINCH_PENDING_DRAG
-    ├─ pinch released < DRAG_HOLD_SECONDS  → left_click() or double_click() → IDLE
-    └─ pinch held ≥ DRAG_HOLD_SECONDS      → drag_start() → DRAGGING
+    â”œâ”€ pinch released < DRAG_HOLD_SECONDS  â†’ left_click() or double_click() â†’ IDLE
+    â””â”€ pinch held â‰¥ DRAG_HOLD_SECONDS      â†’ drag_start() â†’ DRAGGING
 
   DRAGGING
-    └─ pinch released            → drag_end() → IDLE
+    â””â”€ pinch released            â†’ drag_end() â†’ IDLE
 """
 
 import time
@@ -51,7 +51,7 @@ from core.tracker import Landmark
 from core.filter import OneEuroFilter
 from core.display import VirtualDesktop, TrackpadZone, map_to_desktop
 from core.actuator import MouseActuator
-from core.gestures.utils import dist3d, is_fist, is_peace_sign, angle3d, is_three_fingers
+from core.gestures.utils import dist3d, is_fist, is_peace_sign, angle3d, is_three_fingers, is_open_palm, is_palm_facing_camera_right_hand
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +70,8 @@ class _State(Enum):
     TAP_BENT = auto()
     TAP_WAITING_FOR_SECOND = auto()
     TAP_BENT_SECOND = auto()
-    SCREENSHOT_PENDING = auto()
+    SCREENSHOT_HOLD = auto()
+    SCREENSHOT_CAPTURED = auto()
 
 
 class RightHandProcessor:
@@ -94,7 +95,8 @@ class RightHandProcessor:
         self._tap_start_time: float | None = None
         self._first_tap_time: float | None = None
         self._zoom_baseline: float | None = None
-        self._screenshot_start_y: float | None = None
+        self._screenshot_start_time: float | None = None
+        self._screenshot_last_seen_time: float | None = None
         self._last_click_time: float = 0.0
         self._last_gesture_time: float = 0.0
         self._last_scroll_time: float = 0.0
@@ -132,7 +134,7 @@ class RightHandProcessor:
     def process(self, landmarks: list[Landmark] | None) -> None:
         from config import POINTER_ONLY_MODE
         if landmarks is None:
-            # Hand left frame — clean up drag if active
+            # Hand left frame â€” clean up drag if active
             if self._state == _State.DRAGGING:
                 self._actuator.drag_end()
             if self._state == _State.CLICK_PENDING:
@@ -176,6 +178,22 @@ class RightHandProcessor:
             
         self._cursor_pos = (screen_x, screen_y)
         self._actuator.move(screen_x, screen_y)
+
+        fist = is_fist(landmarks)
+        if self._state == _State.LOCKED:
+            if not fist:
+                self._state = _State.IDLE
+                logger.debug("Unlocked")
+            return  # no cursor, no gestures while locked
+
+        if fist and self._state not in (_State.LEFT_PINCH_PENDING_DRAG, _State.DRAGGING):
+            if self._state == _State.DRAGGING:
+                self._actuator.drag_end()
+            self._state = _State.LOCKED
+            logger.debug("Locked (fist)")
+            return
+
+
 
         from config import PINCH_CLICK_ENABLED, POINTER_ONLY_MODE
         if POINTER_ONLY_MODE:
@@ -323,7 +341,7 @@ class RightHandProcessor:
                     self._pinch_start_time = None
                     self._click_state_text = "READY"
                     
-            # ── Phase 3: Zoom Gestures ───────────────────────────────────────────────
+            # â”€â”€ Phase 3: Zoom Gestures â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             from config import (
                 ZOOM_ENABLED, ZOOM_BACKEND, ZOOM_ACTIVATION_DURATION_S,
                 ZOOM_EXIT_DURATION_S, ZOOM_COOLDOWN_S, ZOOM_SPREAD_THRESHOLD, ZOOM_CLOSE_THRESHOLD
@@ -368,6 +386,14 @@ class RightHandProcessor:
                         
                         if (now - self._last_zoom_step_time) >= ZOOM_COOLDOWN_S:
                             delta = d_index_mid_norm - self._zoom_baseline
+                            
+                            # DIAGNOSTIC FEEDBACK
+                            logger.info(
+                                f"ZOOM DIAGNOSTIC | State: {self._state.name} | Peace: {peace} | "
+                                f"DistNorm: {d_index_mid_norm:.3f} | Baseline: {self._zoom_baseline:.3f} | "
+                                f"Delta: {delta:.3f} | Backend: {ZOOM_BACKEND}"
+                            )
+                            
                             if delta > ZOOM_SPREAD_THRESHOLD:
                                 if ZOOM_BACKEND == "windows_magnifier":
                                     self._actuator.mag_zoom_in()
@@ -377,7 +403,7 @@ class RightHandProcessor:
                                 self._last_zoom_step_time = now
                                 self._click_state_text = "ZOOM: IN"
                                 self._display_text_until = now + 0.3
-                                logger.debug("Zoom In (delta=%.3f)", delta)
+                                logger.info(f"ZOOM DIAGNOSTIC | ACTION DISPATCHED: IN (delta={delta:.3f})")
                             elif delta < ZOOM_CLOSE_THRESHOLD:
                                 if ZOOM_BACKEND == "windows_magnifier":
                                     self._actuator.mag_zoom_out()
@@ -387,217 +413,17 @@ class RightHandProcessor:
                                 self._last_zoom_step_time = now
                                 self._click_state_text = "ZOOM: OUT"
                                 self._display_text_until = now + 0.3
-                                logger.debug("Zoom Out (delta=%.3f)", delta)
+                                logger.info(f"ZOOM DIAGNOSTIC | ACTION DISPATCHED: OUT (delta={delta:.3f})")
                                 
                     if now <= getattr(self, "_display_text_until", 0) and self._click_state_text in ("ZOOM: IN", "ZOOM: OUT"):
                         pass # keep text
                     elif self._state == _State.ZOOM_ACTIVE:
                         self._click_state_text = "ZOOM: ACTIVE"
 
-            return # Skip the rest of the legacy gesture engine
-
-        # Compute wrist velocity (landmark 0 = wrist joint)
-        wrist_y = landmarks[0].y
-        dt = (now - self._last_frame_time) if self._last_frame_time is not None else (1.0 / CAMERA_FPS)
-        dt = max(dt, 1e-6)  # guard divide-by-zero
-        wrist_vel_y = (
-            (wrist_y - self._prev_wrist_y) / dt
-            if self._prev_wrist_y is not None
-            else 0.0
-        )
-        self._prev_wrist_y = wrist_y
-        self._last_frame_time = now
-
-        fist = is_fist(landmarks)
-        peace = is_peace_sign(landmarks)
-        three_fingers = is_three_fingers(landmarks)
-        d_thumb_idx = dist3d(landmarks[4], landmarks[8])
-        d_thumb_mid = dist3d(landmarks[4], landmarks[12])
-        thumb_idx_pinch = d_thumb_idx < THUMB_INDEX_CLICK_DIST
-
-        # ── LOCKED state ──────────────────────────────────────────────────────
-        if self._state == _State.LOCKED:
-            if not fist:
-                self._state = _State.IDLE
-                logger.debug("Unlocked")
-            return  # no cursor, no gestures while locked
-
-        # ── Fist → LOCKED ─────────────────────────────────────────────────────
-        if fist and self._state not in (_State.LEFT_PINCH_PENDING_DRAG, _State.DRAGGING):
-            if self._state == _State.DRAGGING:
-                self._actuator.drag_end()
-            self._state = _State.LOCKED
-            logger.debug("Locked (fist)")
-            return
-
-        # ── SCREENSHOT ────────────────────────────────────────────────────────
-        from config import SCREENSHOT_DIR, SCREENSHOT_SWIPE_DIST, SCREENSHOT_SWIPE_VEL, SCREENSHOT_COOLDOWN_S
-
-        if self._state == _State.SCREENSHOT_PENDING:
-            if not three_fingers:
-                self._state = _State.IDLE
-                self._screenshot_start_y = None
-                return
-            if wrist_vel_y > SCREENSHOT_SWIPE_VEL and self._screenshot_start_y is not None:
-                if (wrist_y - self._screenshot_start_y) > SCREENSHOT_SWIPE_DIST:
-                    if (now - self._last_screenshot_time) > SCREENSHOT_COOLDOWN_S:
-                        self._actuator.take_screenshot(SCREENSHOT_DIR)
-                        self._last_screenshot_time = now
-                        logger.debug("Screenshot taken")
-                    # Must release gesture before taking another
-                    self._state = _State.IDLE
-                    self._screenshot_start_y = None
-            return  # freeze cursor while swiping
-        
-        if three_fingers and self._state == _State.IDLE:
-            if (now - self._last_screenshot_time) > SCREENSHOT_COOLDOWN_S:
-                self._state = _State.SCREENSHOT_PENDING
-                self._screenshot_start_y = wrist_y
-                logger.debug("Entered screenshot pending")
-            return
-
-        # ── SCROLL_ZOOM state ─────────────────────────────────────────────────
-        if self._state == _State.SCROLLING:
-            if not peace:
-                self._state = _State.IDLE
-                self._zoom_baseline = None
-                return
-            
-            # 1. Scroll logic
-            if abs(wrist_vel_y) > WRIST_VELOCITY_THRESHOLD:
-                if (now - self._last_scroll_time) >= SCROLL_COOLDOWN_S:
-                    ticks = int(min(5, max(1, abs(wrist_vel_y) / SCROLL_TICK_SCALE)))
-                    self._actuator.scroll(ticks if wrist_vel_y < 0 else -ticks)
-                    self._last_scroll_time = now
-                    logger.debug("Scroll %s ticks=%d vel=%.4f", "up" if wrist_vel_y < 0 else "down", ticks, wrist_vel_y)
-
-            # 2. Zoom logic
-            from config import ZOOM_TICK_DELTA, ZOOM_MODE
-            d_index_mid = dist3d(landmarks[8], landmarks[12])
-            if self._zoom_baseline is None:
-                self._zoom_baseline = d_index_mid
-            else:
-                if d_index_mid > self._zoom_baseline + ZOOM_TICK_DELTA:
-                    if ZOOM_MODE == "APP":
-                        self._actuator.zoom_in()
-                    else:
-                        self._actuator.mag_zoom_in()
-                    self._zoom_baseline += ZOOM_TICK_DELTA
-                    logger.debug("Zoom in")
-                elif d_index_mid < self._zoom_baseline - ZOOM_TICK_DELTA:
-                    if ZOOM_MODE == "APP":
-                        self._actuator.zoom_out()
-                    else:
-                        self._actuator.mag_zoom_out()
-                    self._zoom_baseline -= ZOOM_TICK_DELTA
-                    logger.debug("Zoom out")
-            return  # cursor suspended while scrolling/zooming
-
-        # ── Enter SCROLL_ZOOM ─────────────────────────────────────────────────
-        if peace and self._state == _State.IDLE:
-            self._state = _State.SCROLLING
-            self._zoom_baseline = dist3d(landmarks[8], landmarks[12])
-            logger.debug("Entered scroll/zoom mode (peace sign)")
-            return
-
-        # ── Right click ───────────────────────────────────────────────────────
-        if (
-            d_thumb_mid < THUMB_MIDDLE_CLICK_DIST
-            and self._state == _State.IDLE
-            and (now - self._last_gesture_time) >= GESTURE_COOLDOWN_SECONDS
-        ):
-            self._actuator.right_click()
-            self._last_gesture_time = now
-            logger.debug("Right click (d=%.4f)", d_thumb_mid)
-            return
-
-        index_pip_angle = angle3d(landmarks[5], landmarks[6], landmarks[8])
-        index_bent = index_pip_angle < TAP_BENT_ANGLE
-        index_straight = index_pip_angle > TAP_STRAIGHT_ANGLE
-
-        # ── Left click / drag state machine ───────────────────────────────────
-        if USE_PINCH_CLICK:
-            if self._state == _State.IDLE:
-                if thumb_idx_pinch:
-                    self._state = _State.LEFT_PINCH_PENDING_DRAG
-                    self._pinch_start_time = now
-
-            elif self._state == _State.LEFT_PINCH_PENDING_DRAG:
-                if not thumb_idx_pinch:
-                    if (now - self._last_gesture_time) >= GESTURE_COOLDOWN_SECONDS:
-                        if (now - self._last_click_time) <= DOUBLE_CLICK_WINDOW_S and self._last_click_time > 0:
-                            self._actuator.double_click()
-                            logger.debug("Double click")
-                            self._last_click_time = 0.0
-                        else:
-                            self._actuator.left_click()
-                            logger.debug("Left click (d=%.4f)", d_thumb_idx)
-                            self._last_click_time = now
-                        self._last_gesture_time = now
-                    self._state = _State.IDLE
-                    self._pinch_start_time = None
-
-                elif self._pinch_start_time is not None and (now - self._pinch_start_time) >= DRAG_HOLD_SECONDS:
-                    self._actuator.drag_start()
-                    self._state = _State.DRAGGING
-                    logger.debug("Drag start")
-
-            elif self._state == _State.DRAGGING:
-                if not thumb_idx_pinch:
-                    self._actuator.drag_end()
-                    self._state = _State.IDLE
-                    self._pinch_start_time = None
-                    logger.debug("Drag end")
-        else:
-            if self._state == _State.IDLE:
-                if index_bent:
-                    self._state = _State.TAP_BENT
-                    self._tap_start_time = now
-            elif self._state == _State.TAP_BENT:
-                if index_straight:
-                    if self._tap_start_time is not None and (now - self._tap_start_time) <= TAP_MAX_DURATION_S:
-                        self._state = _State.TAP_WAITING_FOR_SECOND
-                        self._first_tap_time = now
-                        logger.debug("First tap registered")
-                    else:
-                        self._state = _State.IDLE
-                elif self._tap_start_time is not None and (now - self._tap_start_time) >= DRAG_HOLD_SECONDS:
-                    self._actuator.drag_start()
-                    self._state = _State.DRAGGING
-                    logger.debug("Drag start (tap hold)")
-            elif self._state == _State.TAP_WAITING_FOR_SECOND:
-                if self._first_tap_time is not None and (now - self._first_tap_time) > TAP_DOUBLE_WINDOW_S:
-                    self._state = _State.IDLE
-                    logger.debug("Double tap window expired")
-                elif index_bent:
-                    self._state = _State.TAP_BENT_SECOND
-                    self._tap_start_time = now
-            elif self._state == _State.TAP_BENT_SECOND:
-                if index_straight:
-                    if self._tap_start_time is not None and (now - self._tap_start_time) <= TAP_MAX_DURATION_S:
-                        self._actuator.left_click()
-                        self._last_gesture_time = now
-                        logger.debug("Double tap left click")
-                    self._state = _State.IDLE
-                elif self._tap_start_time is not None and (now - self._tap_start_time) >= DRAG_HOLD_SECONDS:
-                    self._state = _State.IDLE
-
-            elif self._state == _State.DRAGGING:
-                if index_straight:
-                    self._actuator.drag_end()
-                    self._state = _State.IDLE
-                    logger.debug("Drag end (tap release)")
-
-        # ── Cursor movement (IDLE and DRAGGING only) ──────────────────────────
-        filtered_x = self._filter_x(landmarks[8].x, now)  # index tip
-        filtered_y = self._filter_y(landmarks[8].y, now)
-        screen_x, screen_y = map_to_desktop(filtered_x, filtered_y, self._trackpad, self._desktop)
-        self._cursor_pos = (screen_x, screen_y)
-        self._actuator.move(screen_x, screen_y)
 
     @property
-    def cursor_pos(self) -> tuple[int, int] | None:
-        return getattr(self, "_cursor_pos", None)
+    def cursor_pos(self):
+        return getattr(self, '_cursor_pos', None)
         
     @property
     def right_state(self) -> str:
@@ -609,8 +435,8 @@ class RightHandProcessor:
         
     @property
     def last_pinch_norm(self) -> float:
-        return getattr(self, "_last_pinch_norm", 0.0)
+        return getattr(self, '_last_pinch_norm', 0.0)
 
     @property
     def is_cursor_locked(self) -> bool:
-        return getattr(self, "_locked_cursor_pos", None) is not None
+        return getattr(self, '_locked_cursor_pos', None) is not None

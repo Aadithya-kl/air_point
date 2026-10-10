@@ -7,6 +7,7 @@ the old GestureProcessor.process(landmarks: list[Landmark]).
 """
 
 import logging
+import time
 
 from core.tracker import HandsResult
 from core.display import VirtualDesktop, TrackpadZone
@@ -14,6 +15,7 @@ from core.actuator import MouseActuator
 from core.gestures.right_hand import RightHandProcessor
 from core.gestures.left_hand import LeftHandProcessor
 from core.gestures.two_hand import TwoHandProcessor
+from core.gestures.screenshot import ScreenshotController
 
 logger = logging.getLogger(__name__)
 
@@ -37,12 +39,32 @@ class GestureOrchestrator:
         self._right = RightHandProcessor(actuator, desktop, trackpad)
         self._left = LeftHandProcessor(actuator)
         self._two = TwoHandProcessor(actuator)
+        self._screenshot = ScreenshotController(actuator)
+        self._last_cursor_pos = None
+        self._actuator = actuator
         logger.info("GestureOrchestrator ready (dual-hand mode)")
 
     def process(self, hands: HandsResult) -> None:
         """Process one frame. Call once per frame regardless of hand visibility."""
         from config import POINTER_ONLY_MODE, PINCH_CLICK_ENABLED
+        now = time.time()
+        
+        screenshot_active = self._screenshot.process(hands, now)
+        
+        if screenshot_active:
+            # Block other gestures and freeze cursor
+            if self._last_cursor_pos is not None:
+                self._actuator.move(self._last_cursor_pos[0], self._last_cursor_pos[1])
+            # Feed None to per-hand processors to safely reset/cancel their states (like dragging)
+            self._right.process(None)
+            self._left.process(None)
+            return
+
         self._right.process(hands.right)
+        
+        # Capture cursor pos for freezing during screenshot
+        if self._right.cursor_pos is not None:
+            self._last_cursor_pos = self._right.cursor_pos
 
         # In Phase 1 and 2, left and two-hand gestures are disabled.
         if not POINTER_ONLY_MODE and not PINCH_CLICK_ENABLED:

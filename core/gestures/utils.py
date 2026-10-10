@@ -64,6 +64,22 @@ def is_open_palm(lm: list[Landmark]) -> bool:
         and is_extended(lm[4],  lm[2])
     )
 
+def is_palm_facing_camera_right_hand(lm: list[Landmark]) -> bool:
+    """
+    Assuming a horizontally flipped selfie camera:
+    For the anatomical right hand, if the palm is facing the camera, 
+    the thumb is to the left of the pinky.
+    """
+    return lm[4].x < lm[20].x
+
+def is_palm_facing_camera_left_hand(lm: list[Landmark]) -> bool:
+    """
+    Assuming a horizontally flipped selfie camera:
+    For the anatomical left hand, if the palm is facing the camera, 
+    the thumb is to the right of the pinky.
+    """
+    return lm[4].x > lm[20].x
+
 
 def is_v_sign(lm: list[Landmark]) -> bool:
     """Index + middle extended, ring + pinky curled (thumb free)."""

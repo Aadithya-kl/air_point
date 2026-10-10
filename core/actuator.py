@@ -231,17 +231,27 @@ class MouseActuator:
             self._keyboard.press('-')
             self._keyboard.release('-')
 
-    def take_screenshot(self, directory: str) -> str | None:
+    def take_screenshot(self, directory: str, pre_capture_cb=None, post_capture_cb=None) -> str | None:
         try:
             if not os.path.exists(directory):
                 os.makedirs(directory)
             timestamp = time.strftime("%Y%m%d_%H%M%S")
             filename = os.path.join(directory, f"screenshot_{timestamp}.png")
+            
+            if pre_capture_cb:
+                pre_capture_cb()
+                
             img = ImageGrab.grab(all_screens=True)
+            
+            if post_capture_cb:
+                post_capture_cb()
+                
             img.save(filename)
             logger.info("Screenshot saved to %s", filename)
             return filename
         except Exception as e:
+            if post_capture_cb:
+                post_capture_cb()
             logger.error("Screenshot failed: %s", e)
             return None
 

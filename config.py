@@ -53,11 +53,15 @@ ZOOM_BASELINE_SAMPLES   = 5
 ZOOM_START_DIST_VAR     = 0.05    # hysteresis for zoom baseline
 ZOOM_TICK_DELTA         = 0.03    # normalized distance change per zoom tick
 
-# Screenshot thresholds
-SCREENSHOT_DIR          = "screenshots"
-SCREENSHOT_SWIPE_DIST   = 0.15    # normalized distance downward
-SCREENSHOT_SWIPE_VEL    = 0.5     # normalized units/sec minimum
-SCREENSHOT_COOLDOWN_S   = 2.0
+# Screenshot thresholds (Phase 4.1: Two-Hand Open-Palm Hold)
+SCREENSHOT_ENABLED         = True
+SCREENSHOT_OVERLAY_ENABLED = True
+SCREENSHOT_OVERLAY_POSITION= "TOP_RIGHT"
+SCREENSHOT_DIR             = "screenshots"
+SCREENSHOT_HOLD_DURATION_S = 3.0
+SCREENSHOT_GRACE_PERIOD_S  = 0.10
+SCREENSHOT_HAND_CONFIDENCE_MIN = 0.85
+SCREENSHOT_REARM_DURATION_S = 0.50
 
 # Fist detection — all finger tips must be below their PIP joints
 FIST_CURL_THRESHOLD = 0.0         # unused numerically; fist = all 5 curled (boolean)
