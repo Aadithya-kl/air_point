@@ -78,16 +78,16 @@ class TestPhase3(unittest.TestCase):
         # 1. Pinch
         self.processor.process(self.make_hand(0.4))
         time.sleep(0.15)
-        self.processor.process(self.make_hand(0.4)) # confirmed -> CLICK_PENDING
+        self.processor.process(self.make_hand(0.4)) # held -> CLICK_PENDING
         self.assertEqual(self.processor._state, _State.CLICK_PENDING)
         self.assertEqual(self.actuator.left_clicks, 0)
         
         # 2. Release
         self.processor.process(self.make_hand(0.9))
-        self.assertEqual(self.processor._state, _State.CLICK_PENDING) # STILL PENDING
+        self.assertEqual(self.processor._state, _State.CLICK_PENDING) # NOW PENDING
         
         # 3. Wait for window to expire
-        time.sleep(0.4)
+        time.sleep(0.85)
         self.processor.process(self.make_hand(0.9))
         self.assertEqual(self.processor._state, _State.IDLE)
         self.assertEqual(self.actuator.left_clicks, 1)
@@ -105,9 +105,10 @@ class TestPhase3(unittest.TestCase):
         self.processor.process(self.make_hand(0.4))
         self.assertEqual(self.processor._state, _State.PINCH_CANDIDATE)
         time.sleep(0.15)
-        self.processor.process(self.make_hand(0.4)) # confirmed -> DOUBLE CLICK
+        self.processor.process(self.make_hand(0.4)) # confirmed
+        self.processor.process(self.make_hand(0.9)) # release -> DOUBLE CLICK
         
-        self.assertEqual(self.processor._state, _State.PINCH_LOCKED)
+        self.assertEqual(self.processor._state, _State.IDLE)
         self.assertEqual(self.actuator.left_clicks, 0)
         self.assertEqual(self.actuator.double_clicks, 1)
 

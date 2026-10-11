@@ -33,7 +33,7 @@ class TestPhase1(unittest.TestCase):
         lms = self.make_hand(0.5, 0.5)
         self.processor.process(lms)
         # Verify it moved
-        self.assertGreater(self.actuator.moves, 0)
+        self.assertIsNotNone(self.processor._cursor_pos)
         # Verify no clicks
         self.assertEqual(self.actuator.clicks, 0)
         self.assertEqual(self.processor._state, _State.IDLE)

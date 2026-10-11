@@ -154,7 +154,7 @@ class ScreenshotOverlay:
         self.root.geometry(f"{self.w}x{self.h}+{self.x}+{int(self.current_y)}")
         
     def update_state(self, ss_controller, is_paused):
-        now = time.time()
+        now = time.perf_counter()
         if now - self._last_ui_update < 0.033:
             return
         dt = now - self._last_ui_update
@@ -166,9 +166,11 @@ class ScreenshotOverlay:
                 self._island_state = "RETRACTING"
         elif ss_controller:
             if ss_controller._state == ScreenshotState.HOLDING:
+                rem = getattr(ss_controller, 'remaining', SCREENSHOT_HOLD_DURATION_S)
+                prog = getattr(ss_controller, 'progress', 0.0)
+
                 if self._island_state in ("IDLE", "RETRACTING"):
                     self._island_state = "DROPPING"
-                    self._island_text = "Hold still"
                     self._island_color = "#00ff66"
                     self.root.deiconify()
                     self.root.lift()
@@ -176,18 +178,20 @@ class ScreenshotOverlay:
                 elif self._island_state == "DROPPING" and self.current_y == self.y_visible:
                     self._island_state = "HOLDING"
                     
-                elapsed = now - getattr(ss_controller, '_hold_start_time', now)
-                self._progress = min(1.0, max(0.0, elapsed / SCREENSHOT_HOLD_DURATION_S))
+                self._island_text = f"Hold still  {rem:.1f}s"
+                self._progress = min(1.0, max(0.0, float(prog)))
             
             elif getattr(ss_controller, '_display_until', 0) > now:
-                if "CANCELLED" in ss_controller.hud_text and self._island_state in ("DROPPING", "HOLDING"):
+                if "CANCELLED" in getattr(ss_controller, 'hud_text', '') and self._island_state in ("DROPPING", "HOLDING"):
                     self._island_state = "RETRACTING"
+                    self._progress = 0.0
             else:
                 if self._island_state in ("DROPPING", "HOLDING"):
                     self._island_state = "RETRACTING"
+                    self._progress = 0.0
                     
             if ss_controller._state == ScreenshotState.CAPTURED:
-                if "CAPTURED" in ss_controller.hud_text and self._island_state != "SUCCESS":
+                if "CAPTURED" in getattr(ss_controller, 'hud_text', '') and self._island_state != "SUCCESS":
                     import re
                     m = re.search(r'\((.*?)\)', ss_controller.hud_text)
                     if m:
@@ -198,6 +202,7 @@ class ScreenshotOverlay:
                     
         if is_paused:
             self._island_state = "RETRACTING"
+            self._progress = 0.0
             
         # Animation
         if self._island_state == "DROPPING":
@@ -209,6 +214,7 @@ class ScreenshotOverlay:
                 self.root.update()
                 self._is_hidden = True
                 self._island_state = "IDLE"
+                self._progress = 0.0
         elif self._island_state == "SUCCESS":
             self._progress = 1.0
             self._animate_y(self.y_visible)
@@ -223,21 +229,23 @@ class ScreenshotOverlay:
             self.root.update()
 
     def show_success_toast(self, filename):
-        now = time.time()
+        now = time.perf_counter()
         self._toast_until = now + 1.5
         self._island_state = "SUCCESS"
         self._island_text = "Screenshot saved"
         self._island_color = "#00ff66"
+        self._progress = 1.0
         self.root.deiconify()
         self.root.lift()
         self._is_hidden = False
         
     def show_error_toast(self):
-        now = time.time()
+        now = time.perf_counter()
         self._toast_until = now + 1.5
         self._island_state = "ERROR"
         self._island_text = "Screenshot failed"
         self._island_color = "#ff4444"
+        self._progress = 1.0
         self.root.deiconify()
         self.root.lift()
         self._is_hidden = False

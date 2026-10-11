@@ -24,6 +24,7 @@ _CONNECTIONS = [
 # Color palette (BGR format for OpenCV)
 _CYAN   = (255, 230, 0)      # Electric Cyan
 _BLUE   = (255, 150, 0)      # Deep Electric Blue
+_EMERALD = (50, 230, 80)     # Vibrant Emerald Green (Left Pointer Ring)
 _WHITE  = (240, 240, 240)    # Off-white
 _GRAY   = (100, 100, 100)    # Subdued gray
 _ALERT  = (50, 50, 255)      # Red for missing
@@ -55,7 +56,8 @@ def draw_debug_frame(
     hands: HandsResult,
     right_state: str,
     cursor_pos: tuple[int, int] | None = None,
-    visual_tips: dict[int, tuple[float, float, float]] | None = None,
+    right_visual_tips: dict[int, tuple[float, float, float]] | None = None,
+    left_visual_tips: dict[int, tuple[float, float, float]] | None = None,
     inference_time_ms: float = 0.0,
     total_time_ms: float = 0.0,
     fps: float = 0.0,
@@ -79,12 +81,12 @@ def draw_debug_frame(
     if hands.right is not None:
         _draw_hand(out, hands.right, _CYAN, "RIGHT_HAND [SYS_PRIMARY]")
         
-        if visual_tips:
-            for tip_idx, (vx, vy, vz) in visual_tips.items():
+        if right_visual_tips:
+            for tip_idx, (vx, vy, vz) in right_visual_tips.items():
                 px = (int(vx * w), int(vy * h))
                 
                 # Highlight thumb and index if PINCH DETECTED
-                is_pinching = click_state_text in ("CANDIDATE", "DOUBLE-CLICK CANDIDATE", "CLICK PENDING", "SINGLE CLICK", "DOUBLE CLICK", "WAITING FOR RELEASE") and (tip_idx in (4, 8))
+                is_pinching = click_state_text in ("PINCH DETECTED", "DOUBLE-CLICK CANDIDATE", "CLICK PENDING", "SINGLE CLICK", "DOUBLE CLICK", "WAITING FOR RELEASE", "RELEASE TO CLICK") and (tip_idx in (4, 8))
                 
                 # Highlight index and middle if ZOOM DETECTED
                 is_zooming = "ZOOM" in click_state_text and (tip_idx in (8, 12))
@@ -109,6 +111,28 @@ def draw_debug_frame(
     
     if hands.left is not None and not POINTER_ONLY_MODE:
         _draw_hand(out, hands.left, _BLUE, "LEFT_HAND [SYS_MODIFIER]")
+        if left_visual_tips:
+            left_drag_state = orchestrator._left.drag_state_text if orchestrator else "READY"
+            for tip_idx, (vx, vy, vz) in left_visual_tips.items():
+                px = (int(vx * w), int(vy * h))
+                
+                is_pinching = left_drag_state in ("CANDIDATE", "ACTIVE", "DROP") and (tip_idx in (4, 8))
+                
+                if tip_idx == 8:
+                    # Distinctive Left Index Pointer Ring (Vibrant Emerald Green with Reticle Crosshairs)
+                    # Immediately distinguishable from Right Cyan pointer reticle
+                    reticle_color = _WHITE if is_pinching else _EMERALD
+                    cv2.circle(out, px, 14, reticle_color, 1, cv2.LINE_AA)
+                    cv2.line(out, (px[0] - 18, px[1]), (px[0] + 18, px[1]), reticle_color, 1, cv2.LINE_AA)
+                    cv2.line(out, (px[0], px[1] - 18), (px[0], px[1] + 18), reticle_color, 1, cv2.LINE_AA)
+                    if left_drag_state == "ACTIVE":
+                        cv2.circle(out, px, 18, _WHITE, 1, cv2.LINE_AA)
+                    circle_color = _WHITE if is_pinching else _EMERALD
+                else:
+                    circle_color = _WHITE if is_pinching else _BLUE
+                
+                cv2.circle(out, px, 7, circle_color, -1, cv2.LINE_AA)
+                cv2.circle(out, px, 7, _BG, 2, cv2.LINE_AA)
 
     # ── HUD / DASHBOARD ──
     # Top left dashboard panel
@@ -169,6 +193,9 @@ def draw_debug_frame(
     
     if not POINTER_ONLY_MODE:
         hud_lines.append(f"SENSOR_L  : {l_status}")
+        left_drag_state = orchestrator._left.drag_state_text if orchestrator else "READY"
+        left_pinch = orchestrator._left.last_pinch_norm if orchestrator else 0.0
+        hud_lines.append(f"DRAG (L)  : {left_drag_state} (d={left_pinch:.2f})")
 
     if orchestrator and getattr(orchestrator, '_screenshot', None):
         ss = orchestrator._screenshot

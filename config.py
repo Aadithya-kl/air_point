@@ -92,6 +92,8 @@ DEBUG_GESTURES = True
 # Disables complex gestures but enables index-cursor and pinch-to-click.
 POINTER_ONLY_MODE = False
 PINCH_CLICK_ENABLED = True
+DRAG_ENABLED = True
+DRAG_ACTIVATION_DURATION_S = 0.45
 
 # Pinch normalization: distance between thumb tip (4) and index tip (8)
 # divided by palm width (distance between index MCP (5) and pinky MCP (17)).
@@ -126,3 +128,12 @@ TIMER_RESOLUTION_MS = 1          # Sets Windows multimedia timer floor to 1ms
 # psutil priority constant: HIGH_PRIORITY_CLASS = 0x80
 # Do NOT use REALTIME_PRIORITY_CLASS (0x100) — it can starve system threads.
 PROCESS_PRIORITY = 0x80
+
+# Left Hand Drag Settings
+LEFT_DRAG_ENABLED = True
+LEFT_DRAG_CONFIRM_S = 0.10             # Confirm hold duration (100ms) before drag activates
+LEFT_DRAG_ACTIVATION_DURATION_S = 0.10  # Fast grab activation
+LEFT_DRAG_START_NORM_DIST = 0.55       # Pinch entry threshold (thumb-index dist / palm width)
+LEFT_DRAG_RELEASE_NORM_DIST = 0.75     # Pinch release threshold (hysteresis prevents rapid oscillation)
+LEFT_DRAG_LOST_TIMEOUT_S = 0.06        # Safety timeout before releasing drag if hand lost
+

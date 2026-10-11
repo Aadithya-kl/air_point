@@ -180,6 +180,8 @@ def run() -> None:
     def on_activate_pause():
         nonlocal is_paused
         is_paused = not is_paused
+        if is_paused and actuator.is_dragging():
+            actuator.drag_end()
         logger.info("SYSTEM PAUSED" if is_paused else "SYSTEM RESUMED")
         
     def on_activate_quit():
@@ -261,7 +263,8 @@ def run() -> None:
                         hands, 
                         "PAUSED" if is_paused else processor.right_state, 
                         processor.cursor_pos,
-                        processor.visual_tips,
+                        processor.right_visual_tips,
+                        processor.left_visual_tips,
                         inference_time_ms,
                         total_time_ms,
                         current_fps,

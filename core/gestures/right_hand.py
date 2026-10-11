@@ -177,7 +177,7 @@ class RightHandProcessor:
             screen_x, screen_y = self._locked_cursor_pos
             
         self._cursor_pos = (screen_x, screen_y)
-        self._actuator.move(screen_x, screen_y)
+        # Mouse movement is now handled by GestureOrchestrator
 
         fist = is_fist(landmarks)
         if self._state == _State.LOCKED:
@@ -224,6 +224,12 @@ class RightHandProcessor:
             
             if self._state == _State.CLICK_PENDING:
                 self._click_state_text = "CLICK PENDING"
+                
+                # Free the cursor once the first tap is released!
+                if pinch_dist_norm > PINCH_RELEASE_NORM_DIST and self._locked_cursor_pos is not None:
+                    self._locked_cursor_pos = None
+                    logger.debug("Cursor unlocked during CLICK_PENDING")
+                    
                 window_s = DOUBLE_CLICK_GESTURE_WINDOW_MS / 1000.0
                 if self._click_pending_start_time is not None and (now - self._click_pending_start_time) > window_s:
                     # Expired -> Single click
@@ -243,8 +249,8 @@ class RightHandProcessor:
                     if pinch_dist_norm < PINCH_START_NORM_DIST and (now - self._last_click_time) >= PINCH_COOLDOWN_S:
                         # Check position tolerance using physical hand position (raw_screen_x)
                         valid_pos = False
-                        if self._locked_cursor_pos:
-                            px, py = self._locked_cursor_pos
+                        if self._last_click_pos is not None:
+                            px, py = self._last_click_pos
                             if abs(raw_screen_x - px) <= DOUBLE_CLICK_POSITION_TOLERANCE_PX and abs(raw_screen_y - py) <= DOUBLE_CLICK_POSITION_TOLERANCE_PX:
                                 valid_pos = True
                         if valid_pos:
@@ -314,6 +320,7 @@ class RightHandProcessor:
                             self._click_pending_start_time = now
                             self._click_state_text = "CLICK PENDING"
                             self._last_click_time = now
+                            self._last_click_pos = self._locked_cursor_pos
                             logger.debug("First pinch confirmed -> CLICK PENDING")
                     else:
                         # Instant mode

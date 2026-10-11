@@ -35,6 +35,9 @@ class ScreenshotController:
         # Override cursor position while holding or captured
         self.is_locking_cursor = False
         self._display_until = 0.0
+        self.elapsed: float = 0.0
+        self.remaining: float = SCREENSHOT_HOLD_DURATION_S
+        self.progress: float = 0.0
 
     def process(self, hands: HandsResult, now: float) -> bool:
         """
@@ -101,25 +104,34 @@ class ScreenshotController:
                 self._hold_start_time = now
                 self._last_valid_time = now
                 self.is_locking_cursor = True
-                self.hud_text = f"SCREENSHOT: HOLD - {SCREENSHOT_HOLD_DURATION_S:.1f}s"
+                self.elapsed = 0.0
+                self.remaining = SCREENSHOT_HOLD_DURATION_S
+                self.progress = 0.0
+                self.hud_text = f"SCREENSHOT: HOLD ({SCREENSHOT_HOLD_DURATION_S:.1f}s)"
             else:
                 self.is_locking_cursor = False
+                self.elapsed = 0.0
+                self.remaining = SCREENSHOT_HOLD_DURATION_S
+                self.progress = 0.0
                 self.hud_text = "SCREENSHOT: READY"
 
         elif self._state == ScreenshotState.HOLDING:
             if pose_valid:
                 self._last_valid_time = now
-                elapsed = now - self._hold_start_time
-                remaining = max(0.0, SCREENSHOT_HOLD_DURATION_S - elapsed)
-                self.hud_text = f"SCREENSHOT: HOLD - {remaining:.1f}s"
+                self.elapsed = max(0.0, now - self._hold_start_time)
+                self.remaining = max(0.0, SCREENSHOT_HOLD_DURATION_S - self.elapsed)
+                self.progress = min(1.0, max(0.0, self.elapsed / SCREENSHOT_HOLD_DURATION_S))
+                self.hud_text = f"SCREENSHOT: HOLD ({self.remaining:.1f}s)"
                 
-                if elapsed >= SCREENSHOT_HOLD_DURATION_S:
+                if self.elapsed >= SCREENSHOT_HOLD_DURATION_S:
                     # Capture!
                     pre_cb = getattr(self, 'pre_capture_cb', None)
                     post_cb = getattr(self, 'post_capture_cb', None)
                     result = self._actuator.take_screenshot(SCREENSHOT_DIR, pre_cb, post_cb)
                     if result:
                         self._state = ScreenshotState.CAPTURED
+                        self.progress = 1.0
+                        self.remaining = 0.0
                         self.hud_text = f"SCREENSHOT: CAPTURED ({result})"
                     else:
                         self._state = ScreenshotState.ERROR
@@ -130,6 +142,9 @@ class ScreenshotController:
                     # Cancelled
                     self._state = ScreenshotState.READY
                     self.is_locking_cursor = False
+                    self.elapsed = 0.0
+                    self.remaining = SCREENSHOT_HOLD_DURATION_S
+                    self.progress = 0.0
                     self.hud_text = "SCREENSHOT: CANCELLED"
                     self._display_until = now + 1.0
 
@@ -143,6 +158,9 @@ class ScreenshotController:
                 if (now - self._last_invalid_time) > SCREENSHOT_REARM_DURATION_S:
                     self._state = ScreenshotState.READY
                     self.is_locking_cursor = False
+                    self.elapsed = 0.0
+                    self.remaining = SCREENSHOT_HOLD_DURATION_S
+                    self.progress = 0.0
                     self.hud_text = "SCREENSHOT: READY"
 
         # If we have a display timer, override hud_text
