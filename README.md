@@ -122,6 +122,20 @@ Activated only when both hands are visible.
 
 ---
 
+### Face & Hand Gestures — System Audio (Phase 5)
+
+| Gesture | Action |
+|---------|--------|
+| Index fingertip on lips (either hand) held **0.6s** | Toggle Windows Speaker Audio Mute / Restore volume |
+
+- **Windows Output Audio Only:** Controls computer speakers/headphones (default audio endpoint), never microphone input.
+- **True Mute & Exact Volume Restore:** Uses Core Audio API to set actual hardware mute state while preserving the exact master volume level scalar; restores that exact volume level on unmute.
+- **Either Hand:** Works whether performed by the right or left hand independently.
+- **Dynamic Island Feedback:** Displays animated "Muted" (amber capsule) and "Volume restored" (green capsule) toasts in the top-center capsule.
+- **Single-Fire & Release Re-arm:** Requires moving the index finger away from lips (`> 1.2x` mouth width for 0.3s) before the gesture can fire again.
+
+---
+
 ## Calibration
 
 All parameters live in `config.py` — never scattered across modules.

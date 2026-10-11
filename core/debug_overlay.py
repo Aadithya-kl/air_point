@@ -203,6 +203,11 @@ def draw_debug_frame(
         if ss.hud_right: hud_lines.append(ss.hud_right)
         if ss.hud_text: hud_lines.append(ss.hud_text)
 
+    if orchestrator and getattr(orchestrator, '_lip_gesture', None):
+        lip = orchestrator._lip_gesture
+        if lip.state.name != "IDLE":
+            hud_lines.append(f"LIP MUTE  : {lip.status_text}")
+
     for idx, line in enumerate(hud_lines):
         y = 70 + idx * 22
         color = _WHITE if "TRACKING" in line or "CURSOR" in line else _GRAY

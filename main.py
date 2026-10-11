@@ -36,6 +36,7 @@ from pynput import keyboard
 from config import PROCESS_PRIORITY, TIMER_RESOLUTION_MS, DEBUG_GESTURES
 from core.camera import AsyncCamera
 from core.tracker import HandTracker, HandsResult
+from core.face_tracker import FaceTracker
 from core.gestures import GestureOrchestrator
 from core.actuator import MouseActuator
 from core.display import build_virtual_desktop, build_trackpad_zone
@@ -195,7 +196,7 @@ def run() -> None:
     })
     hotkey_listener.start()
 
-    with AsyncCamera() as camera, HandTracker() as tracker:
+    with AsyncCamera() as camera, HandTracker() as tracker, FaceTracker() as face_tracker:
         processor = GestureOrchestrator(actuator, desktop, trackpad)
 
         logger.info("Running. Press Ctrl+Alt+Q to exit, Ctrl+Alt+P to pause.")
@@ -211,6 +212,7 @@ def run() -> None:
             processor._screenshot.pre_capture_cb = overlay.hide
             processor._screenshot.post_capture_cb = overlay.show
             processor.set_w_activation_callback(lambda success: overlay.show_app_toast("WhatsApp", success))
+            processor.set_lip_activation_callback(lambda action, success: overlay.show_audio_toast(action, success))
             
         try:
             while is_running:
@@ -240,14 +242,15 @@ def run() -> None:
                     t_start = time.perf_counter()
                     t1 = t_start
                     hands = tracker.process(frame)
+                    face = face_tracker.process(frame) if face_tracker.is_ready else None
                     t2 = time.perf_counter()
                     inference_time_ms = (t2 - t1) * 1000.0
-                    processor.process(hands)
+                    processor.process(hands, face)
                 else:
                     t_start = time.perf_counter()
                     hands = HandsResult()
                     inference_time_ms = 0.0
-                    processor.process(None) # reset filter and state
+                    processor.process(None, None) # reset filter and state
 
                 now = time.perf_counter()
                 dt = now - last_frame_time

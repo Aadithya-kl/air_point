@@ -146,3 +146,14 @@ W_INDEX_TOUCH_THRESHOLD = 1.35   # Max normalized distance between index fingert
 W_HAND_CONFIDENCE_MIN = 0.65     # Minimum tracking confidence for both hands
 WHATSAPP_URI = "whatsapp:"       # Windows protocol URI for WhatsApp Desktop
 
+# ── Phase 5: Lip-Touch Audio Mute / Restore ─────────────────────────────────
+LIP_MUTE_ENABLED = True
+LIP_MUTE_HOLD_DURATION_S = 0.60       # Required hold duration (seconds) before audio toggle
+LIP_MUTE_PROXIMITY_THRESHOLD = 0.70   # Max 2D distance between index tip and lip center (relative to mouth width)
+LIP_MUTE_RELEASE_THRESHOLD = 1.20     # Distance (relative to mouth width) to confirm release (hysteresis)
+LIP_MUTE_REARM_DURATION_S = 0.30      # Delay after release before gesture can rearm
+LIP_MUTE_FACE_CONFIDENCE_MIN = 0.50   # Minimum face detection confidence
+LIP_MUTE_MAX_STABILITY_DELTA = 0.45   # Max drift of index fingertip during hold to prevent swipe triggers
+MP_FACE_MODEL_PATH = "models/face_landmarker.task"
+
+

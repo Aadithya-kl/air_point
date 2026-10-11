@@ -260,5 +260,29 @@ class ScreenshotOverlay:
         self.root.lift()
         self._is_hidden = False
 
+    def show_audio_toast(self, action: str, success: bool = True):
+        now = time.perf_counter()
+        self._toast_until = now + 1.8
+        if not success:
+            self._island_state = "ERROR"
+            self._island_text = "Audio control failed"
+            self._island_color = "#ff4444"
+        elif action == "MUTED":
+            self._island_state = "SUCCESS"
+            self._island_text = "Muted"
+            self._island_color = "#ff9900"
+        elif action == "RESTORED":
+            self._island_state = "SUCCESS"
+            self._island_text = "Volume restored"
+            self._island_color = "#00ff66"
+        else:
+            self._island_state = "SUCCESS"
+            self._island_text = f"Audio {action.lower()}"
+            self._island_color = "#00ff66"
+        self._progress = 1.0
+        self.root.deiconify()
+        self.root.lift()
+        self._is_hidden = False
+
     def close(self):
         self.root.destroy()

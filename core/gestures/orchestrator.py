@@ -15,6 +15,9 @@ from core.gestures.two_hand import TwoHandProcessor
 from core.gestures.screenshot import ScreenshotController
 from core.gestures.w_gesture import WGestureRecognizer, WState
 from core.app_launcher import AppLauncher
+from core.gestures.lip_mute_gesture import LipMuteGestureRecognizer, LipMuteState
+from core.audio_controller import AudioController
+from core.face_tracker import FaceResult
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +39,8 @@ class GestureOrchestrator:
         self._screenshot = ScreenshotController(actuator)
         self._app_launcher = AppLauncher()
         self._w_gesture = WGestureRecognizer(self._app_launcher)
+        self._audio_controller = AudioController()
+        self._lip_gesture = LipMuteGestureRecognizer(self._audio_controller)
         self._last_cursor_pos: tuple[int, int] | None = (0, 0)
         self._was_right_locked: bool = False
         self._actuator = actuator
@@ -47,7 +52,7 @@ class GestureOrchestrator:
         
         logger.info("GestureOrchestrator ready (dual-hand mode)")
 
-    def process(self, hands: HandsResult) -> None:
+    def process(self, hands: HandsResult, face: FaceResult | None = None) -> None:
         from config import POINTER_ONLY_MODE, PINCH_CLICK_ENABLED
         now = time.perf_counter()
 
@@ -64,6 +69,16 @@ class GestureOrchestrator:
         # Phase 4: Two-hand W gesture to open WhatsApp Desktop
         self._w_gesture.process(hands, now)
         if self._w_gesture.state in (WState.CANDIDATE, WState.CONFIRMED):
+            if self._last_cursor_pos is not None:
+                self._actuator.move(self._last_cursor_pos[0], self._last_cursor_pos[1])
+            self._right.process(None)
+            self._left.process(None)
+            self._pointer_owner = PointerOwner.NONE
+            return
+
+        # Phase 5: Lip-touch audio mute / restore
+        self._lip_gesture.process(hands, face, now)
+        if self._lip_gesture.is_holding:
             if self._last_cursor_pos is not None:
                 self._actuator.move(self._last_cursor_pos[0], self._last_cursor_pos[1])
             self._right.process(None)
@@ -199,4 +214,23 @@ class GestureOrchestrator:
 
     def set_w_activation_callback(self, cb) -> None:
         self._w_gesture.set_activation_callback(cb)
+
+    @property
+    def lip_gesture(self) -> LipMuteGestureRecognizer:
+        return self._lip_gesture
+
+    @property
+    def lip_state(self) -> str:
+        return self._lip_gesture.state.name
+
+    @property
+    def lip_status_text(self) -> str:
+        return self._lip_gesture.status_text
+
+    @property
+    def audio_controller(self) -> AudioController:
+        return self._audio_controller
+
+    def set_lip_activation_callback(self, cb) -> None:
+        self._lip_gesture.set_activation_callback(cb)
 
