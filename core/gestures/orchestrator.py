@@ -13,6 +13,8 @@ from core.gestures.right_hand import RightHandProcessor
 from core.gestures.left_hand import LeftHandProcessor
 from core.gestures.two_hand import TwoHandProcessor
 from core.gestures.screenshot import ScreenshotController
+from core.gestures.w_gesture import WGestureRecognizer, WState
+from core.app_launcher import AppLauncher
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,8 @@ class GestureOrchestrator:
         self._left = LeftHandProcessor(actuator, desktop, trackpad)
         self._two = TwoHandProcessor(actuator)
         self._screenshot = ScreenshotController(actuator)
+        self._app_launcher = AppLauncher()
+        self._w_gesture = WGestureRecognizer(self._app_launcher)
         self._last_cursor_pos: tuple[int, int] | None = (0, 0)
         self._was_right_locked: bool = False
         self._actuator = actuator
@@ -50,6 +54,16 @@ class GestureOrchestrator:
         screenshot_active = self._screenshot.process(hands, now)
         
         if screenshot_active:
+            if self._last_cursor_pos is not None:
+                self._actuator.move(self._last_cursor_pos[0], self._last_cursor_pos[1])
+            self._right.process(None)
+            self._left.process(None)
+            self._pointer_owner = PointerOwner.NONE
+            return
+
+        # Phase 4: Two-hand W gesture to open WhatsApp Desktop
+        self._w_gesture.process(hands, now)
+        if self._w_gesture.state in (WState.CANDIDATE, WState.CONFIRMED):
             if self._last_cursor_pos is not None:
                 self._actuator.move(self._last_cursor_pos[0], self._last_cursor_pos[1])
             self._right.process(None)
@@ -170,3 +184,19 @@ class GestureOrchestrator:
     @property
     def pointer_owner(self) -> str:
         return self._pointer_owner.name
+
+    @property
+    def w_gesture(self) -> WGestureRecognizer:
+        return self._w_gesture
+
+    @property
+    def w_state(self) -> str:
+        return self._w_gesture.state.name
+
+    @property
+    def w_status_text(self) -> str:
+        return self._w_gesture.status_text
+
+    def set_w_activation_callback(self, cb) -> None:
+        self._w_gesture.set_activation_callback(cb)
+

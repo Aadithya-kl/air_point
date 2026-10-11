@@ -117,6 +117,8 @@ Activated only when both hands are visible.
 | Left open palm + right fist swipe **right** | `Win+Right` — Snap window right |
 | Left open palm + right fist swipe **left** | `Win+Left` — Snap window left |
 | Both fists held for **1 second** | `Win+L` — Lock Screen |
+| Both hands open palms (10 fingers) held **3 seconds** | Capture Screenshot (Dynamic Island countdown) |
+| Two-hand **W gesture** (index tips touching, pinkies up) held **0.7s** | Launch WhatsApp Desktop (Dynamic Island toast) |
 
 ---
 

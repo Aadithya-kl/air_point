@@ -137,3 +137,12 @@ LEFT_DRAG_START_NORM_DIST = 0.55       # Pinch entry threshold (thumb-index dist
 LEFT_DRAG_RELEASE_NORM_DIST = 0.75     # Pinch release threshold (hysteresis prevents rapid oscillation)
 LEFT_DRAG_LOST_TIMEOUT_S = 0.06        # Safety timeout before releasing drag if hand lost
 
+# ── Phase 4: Two-Hand W Gesture / WhatsApp ───────────────────────────────────
+W_GESTURE_ENABLED = True
+W_HOLD_DURATION_S = 0.70         # Required hold duration (seconds) before activation
+W_GRACE_PERIOD_S = 0.15          # Grace period for brief frame loss
+W_REARM_DURATION_S = 0.40        # Delay after release before gesture can rearm
+W_INDEX_TOUCH_THRESHOLD = 1.35   # Max normalized distance between index fingertips (relative to palm width)
+W_HAND_CONFIDENCE_MIN = 0.65     # Minimum tracking confidence for both hands
+WHATSAPP_URI = "whatsapp:"       # Windows protocol URI for WhatsApp Desktop
+

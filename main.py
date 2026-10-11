@@ -210,6 +210,7 @@ def run() -> None:
             overlay = ScreenshotOverlay(SCREENSHOT_OVERLAY_POSITION)
             processor._screenshot.pre_capture_cb = overlay.hide
             processor._screenshot.post_capture_cb = overlay.show
+            processor.set_w_activation_callback(lambda success: overlay.show_app_toast("WhatsApp", success))
             
         try:
             while is_running:
