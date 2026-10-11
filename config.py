@@ -168,4 +168,13 @@ EAR_VOLUME_MAX_DEPTH_DELTA = 0.40      # Max normalized relative depth differenc
 EAR_VOLUME_CONFIDENCE_MIN = 0.50       # Minimum tracking confidence required for face and hands
 EAR_VOLUME_LOST_TIMEOUT_S = 0.12       # Grace timeout before cancelling volume adjustment if tracking briefly lost
 
+# ── Phase 7: Dynamic Island HUD & Runtime Feedback ───────────────────────────
+HUD_ENABLED = True
+HUD_ANIMATION_SPEED = 0.35             # Drop/retract smoothing speed factor
+HUD_TOAST_DURATION_S = 1.8             # Standard action toast display duration (seconds)
+HUD_STATUS_DURATION_S = 3.5            # Runtime diagnostics status display duration (seconds)
+HUD_HAND_LOST_TIMEOUT_S = 0.35         # Continuous hand absence required before firing 'Hand lost'
+HUD_HAND_REARM_TIMEOUT_S = 0.15        # Continuous hand presence required before firing 'Hand reacquired'
+
+
 

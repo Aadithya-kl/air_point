@@ -72,6 +72,14 @@ class AudioController:
             logger.warning("Failed to query audio state: %s", e)
             return None
 
+    @property
+    def is_muted(self) -> bool:
+        """Returns True if the output endpoint is currently muted."""
+        state = self.get_current_state()
+        if state is not None:
+            return state[0]
+        return self._muted_by_air_point
+
     def mute(self) -> bool:
         """
         Mutes the default output endpoint and saves the current volume level.

@@ -178,28 +178,50 @@ def run() -> None:
     is_paused = False
     is_running = True
     
+    is_tracking_active = False
+    has_tracked_once = False
+    hand_missing_since = None
+    hand_present_since = None
+
     def on_activate_pause():
-        nonlocal is_paused
+        nonlocal is_paused, is_tracking_active, hand_missing_since, hand_present_since
         is_paused = not is_paused
-        if is_paused and actuator.is_dragging():
+        if is_paused and getattr(actuator, 'is_dragging', False):
             actuator.drag_end()
         logger.info("SYSTEM PAUSED" if is_paused else "SYSTEM RESUMED")
+        if overlay:
+            overlay.show_pause_toast(is_paused)
+        hand_missing_since = None
+        hand_present_since = None
         
     def on_activate_quit():
         nonlocal is_running
         is_running = False
         logger.info("Emergency Stop triggered")
 
+    def on_activate_status():
+        if overlay and processor:
+            r_h = getattr(hands, 'right', None) if 'hands' in locals() and hands else None
+            l_h = getattr(hands, 'left', None) if 'hands' in locals() and hands else None
+            trk = "Both Hands" if (r_h and l_h) else ("Right Hand" if r_h else ("Left Hand" if l_h else "No Hands"))
+            overlay.show_runtime_status({
+                "fps": current_fps,
+                "owner": processor.pointer_owner,
+                "tracking": trk,
+                "paused": is_paused,
+            })
+
     hotkey_listener = keyboard.GlobalHotKeys({
         '<ctrl>+<alt>+p': on_activate_pause,
-        '<ctrl>+<alt>+q': on_activate_quit
+        '<ctrl>+<alt>+q': on_activate_quit,
+        '<ctrl>+<alt>+s': on_activate_status,
     })
     hotkey_listener.start()
 
     with AsyncCamera() as camera, HandTracker() as tracker, FaceTracker() as face_tracker:
         processor = GestureOrchestrator(actuator, desktop, trackpad)
 
-        logger.info("Running. Press Ctrl+Alt+Q to exit, Ctrl+Alt+P to pause.")
+        logger.info("Running. Press Ctrl+Alt+Q to exit, Ctrl+Alt+P to pause, Ctrl+Alt+S for status.")
         
         current_fps = 0.0
         last_frame_time = time.perf_counter()
@@ -209,11 +231,16 @@ def run() -> None:
         overlay = None
         if ScreenshotOverlay:
             overlay = ScreenshotOverlay(SCREENSHOT_OVERLAY_POSITION)
+            overlay.set_audio_controller(processor.audio_controller)
             processor._screenshot.pre_capture_cb = overlay.hide
             processor._screenshot.post_capture_cb = overlay.show
             processor.set_w_activation_callback(lambda success: overlay.show_app_toast("WhatsApp", success))
             processor.set_lip_activation_callback(lambda action, success: overlay.show_audio_toast(action, success))
-            processor.set_ear_volume_callback(lambda dir_name, vol, active: overlay.show_ear_volume(dir_name, vol, active))
+            processor.set_ear_volume_callback(
+                lambda dir_name, vol, active: overlay.show_ear_volume(
+                    dir_name, vol, active, is_muted=processor.audio_controller.is_muted
+                )
+            )
             
         last_face_result = None
         try:
@@ -244,6 +271,30 @@ def run() -> None:
                     t_start = time.perf_counter()
                     t1 = t_start
                     hands = tracker.process(frame)
+
+                    # Hand tracking state transition detection
+                    has_hands = (hands is not None) and (hands.right is not None or hands.left is not None)
+                    now_ts = time.perf_counter()
+                    if has_hands:
+                        hand_missing_since = None
+                        if not is_tracking_active:
+                            if hand_present_since is None:
+                                hand_present_since = now_ts
+                            elif (now_ts - hand_present_since) >= 0.15:
+                                is_tracking_active = True
+                                if has_tracked_once and overlay:
+                                    overlay.show_tracking_toast("REACQUIRED")
+                                has_tracked_once = True
+                    else:
+                        hand_present_since = None
+                        if is_tracking_active and has_tracked_once:
+                            if hand_missing_since is None:
+                                hand_missing_since = now_ts
+                            elif (now_ts - hand_missing_since) >= 0.35:
+                                is_tracking_active = False
+                                if overlay:
+                                    overlay.show_tracking_toast("LOST")
+
                     if face_tracker.is_ready:
                         # Update face landmarks on alternating frames; cache for 1 frame (~33ms)
                         # Re-run immediately if face was missing or not yet detected
@@ -307,10 +358,12 @@ def run() -> None:
         except Exception:
             logger.error("Unhandled exception:\n%s", traceback.format_exc())
         finally:
+            if overlay:
+                overlay.close()
             if DEBUG_GESTURES:
                 cv2.destroyAllWindows()
             # Ensure drag is never left pressed on exit
-            if actuator.is_dragging:
+            if getattr(actuator, 'is_dragging', False):
                 actuator.drag_end()
             _restore_windows_settings(original_settings)
             original_settings.clear()  # prevent atexit double-restore

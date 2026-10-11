@@ -229,6 +229,6 @@ def draw_debug_frame(
         cv2.putText(out, line, (25, y), _FONT, 0.5, color, 1, cv2.LINE_AA)
 
     # Help text at bottom
-    cv2.putText(out, "Q: TERMINATE SYSTEM", (15, h - 15), _FONT, 0.4, _GRAY, 1, cv2.LINE_AA)
+    cv2.putText(out, "Q: QUIT | P: PAUSE | S: HUD STATUS", (15, h - 15), _FONT, 0.4, _GRAY, 1, cv2.LINE_AA)
 
     return out
