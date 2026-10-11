@@ -284,5 +284,23 @@ class ScreenshotOverlay:
         self.root.lift()
         self._is_hidden = False
 
+    def show_ear_volume(self, direction_name: str, volume_scalar: float, is_active: bool):
+        now = time.perf_counter()
+        if not is_active:
+            if self._island_state in ("HOLDING", "DROPPING"):
+                self._toast_until = now + 0.8
+                self._island_state = "SUCCESS"
+            return
+
+        vol_pct = int(volume_scalar * 100.0)
+        arrow = "↑" if direction_name == "VOLUME_UP" else "↓"
+        self._island_state = "HOLDING"
+        self._island_text = f"Volume {arrow}  {vol_pct}%"
+        self._island_color = "#00e5ff"
+        self._progress = max(0.0, min(1.0, volume_scalar))
+        self.root.deiconify()
+        self.root.lift()
+        self._is_hidden = False
+
     def close(self):
         self.root.destroy()

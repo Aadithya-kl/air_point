@@ -52,6 +52,18 @@ def make_synthetic_hand(
     return lms
 
 
+def make_pinching_hand(
+    wrist=(0.5, 0.8, 0.0),
+    index_tip=(0.5, 0.5, 0.0),
+) -> list[Landmark]:
+    """Generates synthetic hand where thumb and index are pinched together (as in drag)."""
+    lms = make_synthetic_hand(wrist=wrist, index_tip=index_tip, is_pointing=True)
+    lms[5] = Landmark(x=0.45, y=0.7, z=0.0)
+    lms[17] = Landmark(x=0.55, y=0.7, z=0.0)
+    lms[4] = Landmark(x=index_tip[0] + 0.01, y=index_tip[1], z=index_tip[2])
+    return lms
+
+
 def make_synthetic_face(
     lip_center=(0.5, 0.5, 0.0),
     mouth_width=0.10,
@@ -277,12 +289,59 @@ class TestLipMuteGestureRecognizer(unittest.TestCase):
         self.recognizer.process(HandsResult(right=hand_touch), face, now=t0 + 1.95)
         self.assertEqual(self.mock_audio.toggle_mute.call_count, 2)
 
+    def test_foreground_floating_hand_rejected_by_depth_check(self):
+        """A hand passing over the mouth in 2D but floating in the foreground must be rejected."""
+        t0 = 100.0
+        face = make_synthetic_face(lip_center=(0.5, 0.5, 0.0), mouth_width=0.10)
+        # Face width is 0.25. Hand is at z = -0.35 (foreground), dz = 0.35 / 0.25 = 1.40 > 0.28
+        hand_foreground = make_synthetic_hand(index_tip=(0.5, 0.5, -0.35))
+        hands = HandsResult(right=hand_foreground)
+
+        self.recognizer.process(hands, face, now=t0)
+        self.assertEqual(self.recognizer.state, LipMuteState.IDLE)
+        self.mock_audio.toggle_mute.assert_not_called()
+
+    def test_physical_contact_accepted_by_depth_check(self):
+        """A hand in physical contact with lips (|dz| small) enters candidate state."""
+        t0 = 100.0
+        face = make_synthetic_face(lip_center=(0.5, 0.5, 0.0), mouth_width=0.10)
+        # Hand at depth z = 0.02, dz = 0.02 / 0.25 = 0.08 <= 0.28
+        hand_contact = make_synthetic_hand(index_tip=(0.5, 0.5, 0.02))
+        hands = HandsResult(right=hand_contact)
+
+        self.recognizer.process(hands, face, now=t0)
+        self.assertEqual(self.recognizer.state, LipMuteState.CANDIDATE)
+
+    def test_pinching_hand_rejected_from_lip_mute(self):
+        """A hand pinching (thumb and index touching, e.g. for drag) must not trigger lip mute."""
+        t0 = 100.0
+        face = make_synthetic_face(lip_center=(0.5, 0.5, 0.0), mouth_width=0.10)
+        hand_pinching = make_pinching_hand(index_tip=(0.5, 0.5, 0.0))
+        hands = HandsResult(left=hand_pinching)
+
+        self.recognizer.process(hands, face, now=t0)
+        self.assertEqual(self.recognizer.state, LipMuteState.IDLE)
+        self.mock_audio.toggle_mute.assert_not_called()
+
+    def test_lip_mute_reset_method(self):
+        """Verify reset clears candidate state and timers back to IDLE."""
+        t0 = 100.0
+        face = make_synthetic_face(lip_center=(0.5, 0.5, 0.0), mouth_width=0.10)
+        hand_touch = make_synthetic_hand(index_tip=(0.5, 0.5, 0.0))
+        self.recognizer.process(HandsResult(right=hand_touch), face, now=t0)
+        self.assertEqual(self.recognizer.state, LipMuteState.CANDIDATE)
+
+        self.recognizer.reset()
+        self.assertEqual(self.recognizer.state, LipMuteState.IDLE)
+        self.assertIsNone(self.recognizer.candidate_hand)
+
 
 class TestOrchestratorLipIntegration(unittest.TestCase):
     """Verifies GestureOrchestrator priority arbitration and cursor locking for LipMute."""
 
     def setUp(self):
         self.actuator = MagicMock(spec=MouseActuator)
+        self.actuator.is_dragging = False
         self.desktop = VirtualDesktop(1920, 1080, 1)
         self.trackpad = TrackpadZone(0, 0, 1920, 1080)
         self.orchestrator = GestureOrchestrator(self.actuator, self.desktop, self.trackpad)
@@ -306,6 +365,20 @@ class TestOrchestratorLipIntegration(unittest.TestCase):
         self.assertEqual(self.orchestrator.lip_state, "CANDIDATE")
         # Actuator should hold last known cursor position
         self.actuator.move.assert_called_with(800, 600)
+
+    def test_active_drag_prevents_lip_mute_interruption(self):
+        """When an active drag is in progress, lip mute must NOT hijack or drop the drag."""
+        face = make_synthetic_face(lip_center=(0.5, 0.5, 0.0), mouth_width=0.10)
+        hand_lms = make_synthetic_hand(index_tip=(0.5, 0.5, 0.0))
+        hands = HandsResult(left=hand_lms)
+
+        # Simulate active mouse drag
+        self.actuator.is_dragging = True
+        self.orchestrator.process(hands, face)
+
+        # Lip mute must remain IDLE and not drop the drag
+        self.assertEqual(self.orchestrator.lip_state, "IDLE")
+        self.actuator.drag_end.assert_not_called()
 
 
 class TestDynamicIslandAudioToast(unittest.TestCase):

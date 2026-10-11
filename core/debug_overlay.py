@@ -137,7 +137,7 @@ def draw_debug_frame(
     # ── HUD / DASHBOARD ──
     # Top left dashboard panel
     panel_w = 400
-    panel_h = 240 if PINCH_CLICK_ENABLED else 200
+    panel_h = 270 if PINCH_CLICK_ENABLED else 230
     overlay = out.copy()
     cv2.rectangle(overlay, (10, 10), (10 + panel_w, 10 + panel_h), _BG, -1)
     # Glass-like effect
@@ -208,12 +208,17 @@ def draw_debug_frame(
         if lip.state.name != "IDLE":
             hud_lines.append(f"LIP MUTE  : {lip.status_text}")
 
+    if orchestrator and getattr(orchestrator, '_ear_volume', None):
+        ear = orchestrator._ear_volume
+        if ear.is_active:
+            hud_lines.append(f"EAR VOL   : {ear.status_text}")
+
     for idx, line in enumerate(hud_lines):
         y = 70 + idx * 22
         color = _WHITE if "TRACKING" in line or "CURSOR" in line else _GRAY
         if "LOST" in line or "OFFLINE" in line:
             color = _ALERT
-        if "STATE" in line or "CLICK" in line or "ZOOM" in line or "SCREENSHOT" in line:
+        if "STATE" in line or "CLICK" in line or "ZOOM" in line or "SCREENSHOT" in line or "EAR VOL" in line or "LIP MUTE" in line:
             color = _CYAN
         if "LEFT CLICK" in line or "SINGLE CLICK" in line or "DOUBLE CLICK" in line or "PENDING" in line or "ZOOM:" in line or "SCREENSHOT:" in line:
             color = _WHITE

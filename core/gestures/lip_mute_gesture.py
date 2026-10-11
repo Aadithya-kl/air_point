@@ -16,6 +16,7 @@ from config import (
     LIP_MUTE_RELEASE_THRESHOLD,
     LIP_MUTE_REARM_DURATION_S,
     LIP_MUTE_MAX_STABILITY_DELTA,
+    LIP_MUTE_MAX_DEPTH_DELTA,
 )
 from core.tracker import Landmark, HandsResult
 from core.face_tracker import FaceResult
@@ -48,6 +49,20 @@ def is_index_pointing_upward(lm: list[Landmark]) -> bool:
     tip_dist = ((index_tip.x - wrist.x)**2 + (index_tip.y - wrist.y)**2)**0.5
     pip_dist = ((index_pip.x - wrist.x)**2 + (index_pip.y - wrist.y)**2)**0.5
     return tip_dist > pip_dist * 0.95 or index_tip.y < index_pip.y
+
+
+def is_hand_pinching(lm: list[Landmark]) -> bool:
+    """
+    Returns True if thumb tip (4) and index tip (8) are pinched together (as in drag/click).
+    In a true lip-touch gesture, the index finger is extended alone with thumb relaxed.
+    """
+    if len(lm) < 21:
+        return False
+    pw = dist2d(lm[5], lm[17])
+    if pw > 1e-4:
+        pinch_dist = dist2d(lm[4], lm[8])
+        return (pinch_dist / pw) < 0.65
+    return False
 
 
 class LipMuteGestureRecognizer:
@@ -103,21 +118,51 @@ class LipMuteGestureRecognizer:
         """Sets callback called on audio toggle: cb(action: str, success: bool)."""
         self._activation_callback = cb
 
+    def reset(self) -> None:
+        """Resets recognizer to clean IDLE state."""
+        self._state = LipMuteState.IDLE
+        self._candidate_hand = None
+        self._hold_start_time = None
+        self._initial_touch_pos = None
+        self._release_start_time = None
+
     def _find_best_hand_candidate(
-        self, hands: HandsResult, lip_center: tuple[float, float, float], mouth_width: float
+        self,
+        hands: HandsResult,
+        lip_center: tuple[float, float, float],
+        mouth_width: float,
+        face_width: float = 0.0,
     ) -> tuple[str | None, list[Landmark] | None, float]:
         """
-        Determines which hand's index tip is closest to the lip center.
+        Determines which hand's index tip is closest to the lip center and meets
+        physical contact depth and pose criteria.
         Returns (hand_name, landmarks, normalized_distance).
         """
         best_name = None
         best_lms = None
         best_norm_dist = 999.0
+        fw = max(face_width, mouth_width * 2.5, 1e-4)
 
         for name, lms in (("RIGHT", hands.right), ("LEFT", hands.left)):
             if lms is None:
                 continue
+
+            # Index finger must be extended
+            if not is_index_pointing_upward(lms):
+                continue
+
+            # Reject pinching hands (e.g. performing drag or click)
+            if is_hand_pinching(lms):
+                continue
+
             index_tip = lms[8]
+
+            # Relative depth check: index tip must be physically near lips in depth (Z space)
+            if hasattr(index_tip, 'z') and len(lip_center) >= 3 and fw > 0:
+                dz = abs(index_tip.z - lip_center[2]) / fw
+                if dz > LIP_MUTE_MAX_DEPTH_DELTA:
+                    continue
+
             d = dist2d(index_tip, lip_center)
             norm_d = d / max(mouth_width, 1e-4)
             if norm_d < best_norm_dist:
@@ -142,46 +187,60 @@ class LipMuteGestureRecognizer:
         if face is None or not face.detected or face.lip_center is None or hands is None:
             if self._state == LipMuteState.CANDIDATE:
                 logger.debug("Lip mute candidate aborted: face or hands lost")
-                self._state = LipMuteState.IDLE
-                self._hold_start_time = None
-                self._candidate_hand = None
+                self.reset()
             elif self._state == LipMuteState.CONFIRMED:
                 self._state = LipMuteState.WAITING_RELEASE
                 self._release_start_time = now
             return False
 
+        fw = getattr(face, 'face_width', 0.0) or (face.mouth_width * 2.5)
         hand_name, hand_lms, norm_dist = self._find_best_hand_candidate(
-            hands, face.lip_center, face.mouth_width
+            hands, face.lip_center, face.mouth_width, fw
         )
         self._last_norm_dist = norm_dist
 
         # State machine transitions
         if self._state == LipMuteState.IDLE:
             if hand_lms is not None and norm_dist <= LIP_MUTE_PROXIMITY_THRESHOLD:
-                if is_index_pointing_upward(hand_lms):
-                    self._state = LipMuteState.CANDIDATE
-                    self._candidate_hand = hand_name
-                    self._hold_start_time = now
-                    self._initial_touch_pos = (hand_lms[8].x, hand_lms[8].y)
-                    logger.debug("Lip mute CANDIDATE started with %s hand (dist=%.2f)", hand_name, norm_dist)
+                self._state = LipMuteState.CANDIDATE
+                self._candidate_hand = hand_name
+                self._hold_start_time = now
+                self._initial_touch_pos = (hand_lms[8].x, hand_lms[8].y)
+                logger.debug("Lip mute CANDIDATE started with %s hand (dist=%.2f)", hand_name, norm_dist)
 
         elif self._state == LipMuteState.CANDIDATE:
-            # Validate candidate maintains proximity and stability
-            if hand_lms is None or hand_name != self._candidate_hand or norm_dist > LIP_MUTE_PROXIMITY_THRESHOLD:
-                logger.debug("Lip mute CANDIDATE cancelled: finger moved away (dist=%.2f)", norm_dist)
-                self._state = LipMuteState.IDLE
-                self._hold_start_time = None
-                self._candidate_hand = None
+            # Validate candidate maintains proximity, depth, and stability
+            cand_lms = hands.right if self._candidate_hand == "RIGHT" else hands.left
+            if (
+                cand_lms is None
+                or not is_index_pointing_upward(cand_lms)
+                or is_hand_pinching(cand_lms)
+            ):
+                logger.debug("Lip mute CANDIDATE cancelled: hand lost or pose changed")
+                self.reset()
+                return False
+
+            index_tip = cand_lms[8]
+            norm_d = dist2d(index_tip, face.lip_center) / max(face.mouth_width, 1e-4)
+            if hasattr(index_tip, 'z') and len(face.lip_center) >= 3 and fw > 0:
+                dz = abs(index_tip.z - face.lip_center[2]) / fw
+            else:
+                dz = 0.0
+
+            if norm_d > LIP_MUTE_PROXIMITY_THRESHOLD or dz > LIP_MUTE_MAX_DEPTH_DELTA:
+                logger.debug(
+                    "Lip mute CANDIDATE cancelled: finger moved away (dist=%.2f, dz=%.2f)",
+                    norm_d, dz
+                )
+                self.reset()
                 return False
 
             # Check stability to prevent sweeping hand triggers
             if self._initial_touch_pos is not None:
-                drift = dist2d(hand_lms[8], self._initial_touch_pos) / max(face.mouth_width, 1e-4)
+                drift = dist2d(cand_lms[8], self._initial_touch_pos) / max(face.mouth_width, 1e-4)
                 if drift > LIP_MUTE_MAX_STABILITY_DELTA:
                     logger.debug("Lip mute CANDIDATE cancelled: excessive motion drift (%.2f)", drift)
-                    self._state = LipMuteState.IDLE
-                    self._hold_start_time = None
-                    self._candidate_hand = None
+                    self.reset()
                     return False
 
             # Check if hold duration satisfied
@@ -203,7 +262,18 @@ class LipMuteGestureRecognizer:
 
         elif self._state in (LipMuteState.CONFIRMED, LipMuteState.WAITING_RELEASE):
             # Check for physical release
-            is_released = (hand_lms is None or norm_dist >= LIP_MUTE_RELEASE_THRESHOLD)
+            cand_lms = hands.right if self._candidate_hand == "RIGHT" else hands.left
+            if cand_lms is not None and hasattr(cand_lms[8], 'z') and len(face.lip_center) >= 3 and fw > 0:
+                dz = abs(cand_lms[8].z - face.lip_center[2]) / fw
+            else:
+                dz = 0.0
+
+            is_released = (
+                cand_lms is None
+                or norm_dist >= LIP_MUTE_RELEASE_THRESHOLD
+                or dz > LIP_MUTE_MAX_DEPTH_DELTA
+                or not is_index_pointing_upward(cand_lms)
+            )
 
             if is_released:
                 if self._release_start_time is None:
@@ -212,10 +282,7 @@ class LipMuteGestureRecognizer:
                 elif (now - self._release_start_time) >= LIP_MUTE_REARM_DURATION_S:
                     # Successfully rearmed
                     logger.debug("Lip mute REARMED after confirmed release")
-                    self._state = LipMuteState.IDLE
-                    self._candidate_hand = None
-                    self._hold_start_time = None
-                    self._release_start_time = None
+                    self.reset()
             else:
                 # Still held near lips
                 self._release_start_time = None

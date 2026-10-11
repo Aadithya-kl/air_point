@@ -213,11 +213,11 @@ def run() -> None:
             processor._screenshot.post_capture_cb = overlay.show
             processor.set_w_activation_callback(lambda success: overlay.show_app_toast("WhatsApp", success))
             processor.set_lip_activation_callback(lambda action, success: overlay.show_audio_toast(action, success))
+            processor.set_ear_volume_callback(lambda dir_name, vol, active: overlay.show_ear_volume(dir_name, vol, active))
             
+        last_face_result = None
         try:
             while is_running:
-                if overlay:
-                    overlay.update_state(processor._screenshot, is_paused)
                 frame = camera.read()
                 if frame is not None:
                     # Skip if we already processed this exact frame object
@@ -237,12 +237,23 @@ def run() -> None:
                     continue
 
                 none_count = 0
+                if overlay:
+                    overlay.update_state(processor._screenshot, is_paused)
                 
                 if not is_paused:
                     t_start = time.perf_counter()
                     t1 = t_start
                     hands = tracker.process(frame)
-                    face = face_tracker.process(frame) if face_tracker.is_ready else None
+                    if face_tracker.is_ready:
+                        # Update face landmarks on alternating frames; cache for 1 frame (~33ms)
+                        # Re-run immediately if face was missing or not yet detected
+                        if frame_count % 2 == 0 or last_face_result is None or not last_face_result.detected:
+                            face = face_tracker.process(frame)
+                            last_face_result = face
+                        else:
+                            face = last_face_result
+                    else:
+                        face = None
                     t2 = time.perf_counter()
                     inference_time_ms = (t2 - t1) * 1000.0
                     processor.process(hands, face)

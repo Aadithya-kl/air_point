@@ -149,11 +149,23 @@ WHATSAPP_URI = "whatsapp:"       # Windows protocol URI for WhatsApp Desktop
 # ── Phase 5: Lip-Touch Audio Mute / Restore ─────────────────────────────────
 LIP_MUTE_ENABLED = True
 LIP_MUTE_HOLD_DURATION_S = 0.60       # Required hold duration (seconds) before audio toggle
-LIP_MUTE_PROXIMITY_THRESHOLD = 0.70   # Max 2D distance between index tip and lip center (relative to mouth width)
+LIP_MUTE_PROXIMITY_THRESHOLD = 0.50   # Max 2D distance between index tip and lip center (relative to mouth width)
 LIP_MUTE_RELEASE_THRESHOLD = 1.20     # Distance (relative to mouth width) to confirm release (hysteresis)
+LIP_MUTE_MAX_DEPTH_DELTA = 0.28       # Max normalized relative depth difference |z_tip - z_lip| / fw to reject foreground hands
 LIP_MUTE_REARM_DURATION_S = 0.30      # Delay after release before gesture can rearm
 LIP_MUTE_FACE_CONFIDENCE_MIN = 0.50   # Minimum face detection confidence
 LIP_MUTE_MAX_STABILITY_DELTA = 0.45   # Max drift of index fingertip during hold to prevent swipe triggers
 MP_FACE_MODEL_PATH = "models/face_landmarker.task"
+
+# ── Phase 6: Ear-Touch Continuous Volume Control ────────────────────────────
+EAR_VOLUME_ENABLED = True
+EAR_VOLUME_ARM_DURATION_S = 0.20       # Confirmation/arming duration (seconds) before volume adjustment starts
+EAR_VOLUME_SPEED_PER_SEC = 0.30        # Volume adjustment speed (30% per second)
+EAR_VOLUME_UPDATE_INTERVAL_S = 0.05    # Time-based rate limiter (50ms interval ~ 20 updates/sec)
+EAR_VOLUME_PROXIMITY_THRESHOLD = 0.28  # Max 2D distance between index tip and ear (relative to face width)
+EAR_VOLUME_RELEASE_THRESHOLD = 0.45    # Distance to confirm ear release (hysteresis)
+EAR_VOLUME_MAX_DEPTH_DELTA = 0.40      # Max normalized relative depth difference |z_tip - z_ear| / fw to reject hands floating in foreground
+EAR_VOLUME_CONFIDENCE_MIN = 0.50       # Minimum tracking confidence required for face and hands
+EAR_VOLUME_LOST_TIMEOUT_S = 0.12       # Grace timeout before cancelling volume adjustment if tracking briefly lost
 
 

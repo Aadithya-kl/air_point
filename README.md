@@ -122,14 +122,23 @@ Activated only when both hands are visible.
 
 ---
 
-### Face & Hand Gestures — System Audio (Phase 5)
+### Face & Hand Gestures — System Audio & Volume (Phases 5 & 6)
 
 | Gesture | Action |
 |---------|--------|
 | Index fingertip on lips (either hand) held **0.6s** | Toggle Windows Speaker Audio Mute / Restore volume |
+| Index fingertip on **Right Ear** (either hand) held | Continuously increase Windows output volume (~30%/sec) |
+| Index fingertip on **Left Ear** (either hand) held | Continuously decrease Windows output volume (~30%/sec) |
 
 - **Windows Output Audio Only:** Controls computer speakers/headphones (default audio endpoint), never microphone input.
-- **True Mute & Exact Volume Restore:** Uses Core Audio API to set actual hardware mute state while preserving the exact master volume level scalar; restores that exact volume level on unmute.
+- **Continuous Ear-Touch Volume (Phase 6):**
+  - **Right Ear:** Touching user's anatomical right ear continuously raises master volume at ~30%/sec.
+  - **Left Ear:** Touching user's anatomical left ear continuously lowers master volume at ~30%/sec.
+  - **Hold Duration Controls Change:** Brief contact (< 0.20s) is ignored to avoid accidental brush triggers; sustained contact continuously adjusts volume at a smooth, rate-limited rate (~20 updates/sec).
+  - **Strict Clamping:** Value clamps safely between `0%` and `100%` without wrap-around.
+  - **Dynamic Island Feedback:** Top-center pill dynamically displays electric cyan feedback (`Volume ↑ XX%` / `Volume ↓ XX%`) with an integrated volume progress bar.
+  - **Disambiguation & Safety:** Dual-ear contact is treated as ambiguous and rejected. Releasing contact stops adjustment instantly.
+- **True Mute & Exact Volume Restore (Phase 5):** Uses Core Audio API to set actual hardware mute state while preserving the exact master volume level scalar; restores that exact volume level on unmute.
 - **Either Hand:** Works whether performed by the right or left hand independently.
 - **Dynamic Island Feedback:** Displays animated "Muted" (amber capsule) and "Volume restored" (green capsule) toasts in the top-center capsule.
 - **Single-Fire & Release Re-arm:** Requires moving the index finger away from lips (`> 1.2x` mouth width for 0.3s) before the gesture can fire again.

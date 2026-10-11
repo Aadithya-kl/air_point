@@ -35,9 +35,11 @@ LM_CHEEK_RIGHT = 454
 class FaceResult:
     """Represents facial tracking results for one frame."""
     detected: bool = False
-    lip_center: tuple[float, float, float] | None = None  # (x, y, z)
-    mouth_width: float = 0.0                              # Scale normalization
+    lip_center: tuple[float, float, float] | None = None   # (x, y, z)
+    mouth_width: float = 0.0                               # Scale normalization
     face_width: float = 0.0
+    right_ear_pos: tuple[float, float, float] | None = None  # Anatomical right ear (viewer right)
+    left_ear_pos: tuple[float, float, float] | None = None   # Anatomical left ear (viewer left)
     landmarks: list[Landmark] | None = None
     confidence: float = 0.0
 
@@ -119,11 +121,24 @@ class FaceTracker:
               (lms[LM_CHEEK_LEFT].y - lms[LM_CHEEK_RIGHT].y)**2)**0.5
         face_width = max(fw, 1e-4)
 
+        # On the mirrored frame (selfie view), user's anatomical right ear is on viewer right (higher x),
+        # and user's anatomical left ear is on viewer left (lower x).
+        chk_a = lms[LM_CHEEK_LEFT]   # 234
+        chk_b = lms[LM_CHEEK_RIGHT]  # 454
+        if chk_a.x > chk_b.x:
+            right_ear = (chk_a.x, chk_a.y, chk_a.z)
+            left_ear = (chk_b.x, chk_b.y, chk_b.z)
+        else:
+            right_ear = (chk_b.x, chk_b.y, chk_b.z)
+            left_ear = (chk_a.x, chk_a.y, chk_a.z)
+
         return FaceResult(
             detected=True,
             lip_center=(lip_x, lip_y, lip_z),
             mouth_width=mouth_width,
             face_width=face_width,
+            right_ear_pos=right_ear,
+            left_ear_pos=left_ear,
             landmarks=lms,
             confidence=1.0,
         )

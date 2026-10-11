@@ -138,3 +138,47 @@ class AudioController:
         else:
             success = self.restore()
             return (True, "RESTORED") if success else (False, "FAILED")
+
+    def get_volume_scalar(self) -> float:
+        """Returns the current output endpoint volume scalar (0.0 to 1.0)."""
+        try:
+            endpoint = self._get_endpoint()
+            return float(endpoint.GetMasterVolumeLevelScalar())
+        except Exception as e:
+            logger.warning("Failed to get master volume scalar: %s", e)
+            return self._saved_volume_scalar if self._saved_volume_scalar is not None else 0.50
+
+    def set_volume_scalar(self, scalar: float) -> float:
+        """Clamps scalar to [0.0, 1.0] and sets master volume."""
+        clamped = max(0.0, min(1.0, float(scalar)))
+        try:
+            endpoint = self._get_endpoint()
+            endpoint.SetMasterVolumeLevelScalar(clamped, None)
+            self._saved_volume_scalar = clamped
+            return clamped
+        except Exception as e:
+            logger.error("Failed to set master volume scalar: %s", e)
+            return clamped
+
+    def adjust_volume(self, delta_scalar: float) -> float:
+        """
+        Adjusts master volume scalar by delta_scalar (e.g. +0.02 or -0.02).
+        Clamps to [0.0, 1.0], unmutes if increasing while muted, and returns new volume scalar.
+        """
+        try:
+            endpoint = self._get_endpoint()
+            current_vol = float(endpoint.GetMasterVolumeLevelScalar())
+            new_vol = max(0.0, min(1.0, current_vol + delta_scalar))
+
+            # If muted and increasing volume, unmute
+            if self._muted_by_air_point and delta_scalar > 0:
+                endpoint.SetMute(0, None)
+                self._muted_by_air_point = False
+
+            endpoint.SetMasterVolumeLevelScalar(new_vol, None)
+            self._saved_volume_scalar = new_vol
+            return new_vol
+        except Exception as e:
+            logger.error("Failed to adjust volume: %s", e)
+            return self._saved_volume_scalar or 0.50
+
